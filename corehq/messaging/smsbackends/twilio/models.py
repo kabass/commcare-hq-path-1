@@ -83,30 +83,14 @@ class SQLTwilioBackend(SQLSMSBackend, PhoneLoadBalancingMixin):
         return number.replace(WHATSAPP_PREFIX, "")
 
     def send(self, msg, orig_phone_number=None, *args, **kwargs):
-        if not orig_phone_number:
-            raise Exception("Expected orig_phone_number to be passed for all "
-                            "instances of PhoneLoadBalancingMixin")
-
         config = self.config
         client = Client(config.account_sid, config.auth_token)
         to = msg.phone_number
-        msg.system_phone_number = orig_phone_number
-        if toggles.WHATSAPP_MESSAGING.enabled(msg.domain) and not kwargs.get('skip_whatsapp', False):
-            domain_obj = Domain.get_by_name(msg.domain)
-            from_ = getattr(domain_obj, 'twilio_whatsapp_phone_number') or WHATSAPP_SANDBOX_PHONE_NUMBER
-            from_ = clean_phone_number(from_)
-            from_ = self.convert_to_whatsapp(from_)
-            to = self.convert_to_whatsapp(to)
-            messaging_service_sid = None
-        else:
-            from_, messaging_service_sid = self.from_or_messaging_service_sid(orig_phone_number)
         body = msg.text
         try:
             message = client.messages.create(
                 body=body,
-                to=to,
-                from_=from_ or values.unset,
-                messaging_service_sid=messaging_service_sid or values.unset,
+                to=to
             )
         except TwilioRestException as e:
             if e.code == INVALID_TO_PHONE_NUMBER_ERROR_CODE:
@@ -130,6 +114,7 @@ class SQLTwilioBackend(SQLSMSBackend, PhoneLoadBalancingMixin):
 
         msg.backend_message_id = message.sid
         msg.save()
+
 
     def from_or_messaging_service_sid(self, phone_number: str) -> (Optional[str], Optional[str]):
         if self.phone_number_is_messaging_service_sid(phone_number):
