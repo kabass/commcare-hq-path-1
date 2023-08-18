@@ -27,7 +27,7 @@ WHATSAPP_PREFIX = "whatsapp:"
 WHATSAPP_SANDBOX_PHONE_NUMBER = "14155238886"
 
 
-class SQLTwilioBackend(SQLSMSBackend):
+class SimpleSQLTwilioBackend(SQLSMSBackend):
 
     @classproperty
     def url(cls):

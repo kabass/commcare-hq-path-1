@@ -4,7 +4,7 @@ from crispy_forms import layout as crispy
 from django.utils.translation import gettext_lazy as _
 
 
-class TwilioBackendForm(BackendForm, LoadBalancingBackendFormMixin):
+class SimpleTwilioBackendForm(BackendForm, LoadBalancingBackendFormMixin):
     account_sid = TrimmedCharField(
         label=_("Account SID"),
     )
@@ -21,6 +21,6 @@ class TwilioBackendForm(BackendForm, LoadBalancingBackendFormMixin):
         )
 
     def validate_phone_number(self, phone_number: str) -> None:
-        from corehq.messaging.smsbackends.twilio.models import SQLTwilioBackend
-        if not SQLTwilioBackend.phone_number_is_messaging_service_sid(phone_number):
+        from corehq.messaging.smsbackends.twilio.models import SimpleSQLTwilioBackend
+        if not SimpleSQLTwilioBackend.phone_number_is_messaging_service_sid(phone_number):
             super().validate_phone_number(phone_number)

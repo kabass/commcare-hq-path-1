@@ -1,7 +1,7 @@
 from corehq.apps.ivr.api import log_call
 from corehq.apps.sms.api import incoming as incoming_sms
 from corehq.apps.sms.views import IncomingBackendView
-from corehq.messaging.smsbackends.twilio.models import SQLTwilioBackend
+from corehq.messaging.smsbackends.simpleTwilio.models import SimpleSQLTwilioBackend
 from django.http import HttpResponse
 
 
@@ -15,21 +15,21 @@ IVR_RESPONSE = """<?xml version="1.0" encoding="UTF-8" ?>
 </Response>"""
 
 
-class TwilioIncomingSMSView(IncomingBackendView):
+class SimpleTwilioIncomingSMSView(IncomingBackendView):
     urlname = 'twilio_sms'
 
     @property
     def backend_class(self):
-        return SQLTwilioBackend
+        return SimpleSQLTwilioBackend
 
     def post(self, request, api_key, *args, **kwargs):
         message_sid = request.POST.get('MessageSid')
-        from_ = SQLTwilioBackend.convert_from_whatsapp(request.POST.get('From'))
+        from_ = SimpleSQLTwilioBackend.convert_from_whatsapp(request.POST.get('From'))
         body = request.POST.get('Body')
         incoming_sms(
             from_,
             body,
-            SQLTwilioBackend.get_api_id(),
+            SimpleSQLTwilioBackend.get_api_id(),
             backend_message_id=message_sid,
             domain_scope=self.domain,
             backend_id=self.backend_couch_id
@@ -37,15 +37,15 @@ class TwilioIncomingSMSView(IncomingBackendView):
         return HttpResponse(EMPTY_RESPONSE)
 
 
-class TwilioIncomingIVRView(IncomingBackendView):
+class SimpleTwilioIncomingIVRView(IncomingBackendView):
     urlname = 'twilio_ivr'
 
     @property
     def backend_class(self):
-        return SQLTwilioBackend
+        return SimpleSQLTwilioBackend
 
     def post(self, request, api_key, *args, **kwargs):
         from_number = request.POST.get('From')
         call_sid = request.POST.get('CallSid')
-        log_call(from_number, '%s-%s' % (SQLTwilioBackend.get_api_id(), call_sid))
+        log_call(from_number, '%s-%s' % (SimpleSQLTwilioBackend.get_api_id(), call_sid))
         return HttpResponse(IVR_RESPONSE)
