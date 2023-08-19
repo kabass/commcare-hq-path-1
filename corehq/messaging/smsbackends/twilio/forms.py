@@ -11,6 +11,9 @@ class TwilioBackendForm(BackendForm, LoadBalancingBackendFormMixin):
     auth_token = TrimmedCharField(
         label=_("Auth Token"),
     )
+    from_phone_number = TrimmedCharField(
+        label=_("From Phone number"),
+    )
 
     @property
     def gateway_specific_fields(self):
@@ -18,6 +21,7 @@ class TwilioBackendForm(BackendForm, LoadBalancingBackendFormMixin):
             _("Twilio Settings"),
             'account_sid',
             'auth_token',
+            'from_phone_number',
         )
 
     def validate_phone_number(self, phone_number: str) -> None:

@@ -46,6 +46,7 @@ class SQLTwilioBackend(SQLSMSBackend, PhoneLoadBalancingMixin):
         return [
             'account_sid',
             'auth_token',
+            'from_phone_number',
         ]
 
     @classmethod
@@ -90,7 +91,8 @@ class SQLTwilioBackend(SQLSMSBackend, PhoneLoadBalancingMixin):
         try:
             message = client.messages.create(
                 body=body,
-                to=to
+                to=to,
+                from_=config.from_phone_number
             )
         except TwilioRestException as e:
             if e.code == INVALID_TO_PHONE_NUMBER_ERROR_CODE:
