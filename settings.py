@@ -1707,6 +1707,7 @@ SMS_LOADED_SQL_BACKENDS = [
     'corehq.messaging.smsbackends.tropo.models.SQLTropoBackend',
     'corehq.messaging.smsbackends.turn.models.SQLTurnWhatsAppBackend',
     'corehq.messaging.smsbackends.twilio.models.SQLTwilioBackend',
+    'corehq.messaging.smsbackends.orange_senegal.models.SQLOrangeSNBackend',
     'corehq.messaging.smsbackends.infobip.models.InfobipBackend',
     'corehq.messaging.smsbackends.amazon_pinpoint.models.PinpointBackend',
     'corehq.messaging.smsbackends.unicel.models.SQLUnicelBackend',

@@ -125,6 +125,7 @@ urlpatterns = [
     url(r'^tropo/', include('corehq.messaging.smsbackends.tropo.urls')),
     url(r'^turn/', include('corehq.messaging.smsbackends.turn.urls')),
     url(r'^twilio/', include('corehq.messaging.smsbackends.twilio.urls')),
+    url(r'^orangesn/', include('corehq.messaging.smsbackends.orange_senegal.urls')),
     url(r'^infobip/', include('corehq.messaging.smsbackends.infobip.urls')),
     url(r'^pinpoint/', include('corehq.messaging.smsbackends.amazon_pinpoint.urls')),
     url(r'^dropbox/', include('corehq.apps.dropbox.urls')),
