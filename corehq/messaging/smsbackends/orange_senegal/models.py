@@ -139,7 +139,7 @@ class SQLOrangeSNBackend(SQLSMSBackend, PhoneLoadBalancingMixin):
         }}
         response = requests.post(url, headers=headers, data=json.dumps(data))
 
-        return response.json().
+        return response.json()
 
 
     def from_or_messaging_service_sid(self, phone_number: str) -> (Optional[str], Optional[str]):
