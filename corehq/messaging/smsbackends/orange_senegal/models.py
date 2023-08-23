@@ -121,7 +121,6 @@ class SQLOrangeSNBackend(SQLSMSBackend):
 
     def send(self, msg, orig_phone_number=None, *args, **kwargs):
         config = self.config
-        client = Client(config.account_sid, config.auth_token)
         token = getToken(config.client_id, config.cient_secret)
         url = f'https://api.orange.com/smsmessaging/v1/outbound/tel:{senderAddress}/requests'
         headers = {
