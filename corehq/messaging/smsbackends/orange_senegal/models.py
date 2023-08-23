@@ -10,7 +10,7 @@ from dimagi.utils.logging import notify_exception
 
 from corehq import toggles
 from corehq.apps.domain.models import Domain
-from corehq.apps.sms.models import SMS, PhoneLoadBalancingMixin, SQLSMSBackend
+from corehq.apps.sms.models import SMS, SQLSMSBackend
 from corehq.apps.sms.util import clean_phone_number
 from corehq.apps.smsbillables.exceptions import RetryBillableTaskException
 from corehq.messaging.smsbackends.orange_senegal.forms import OrangeSNBackendForm
@@ -26,7 +26,7 @@ WHATSAPP_PREFIX = "whatsapp:"
 WHATSAPP_SANDBOX_PHONE_NUMBER = "14155238886"
 
 
-class SQLOrangeSNBackend(SQLSMSBackend, PhoneLoadBalancingMixin):
+class SQLOrangeSNBackend(SQLSMSBackend):
 
     @classproperty
     def url(cls):
