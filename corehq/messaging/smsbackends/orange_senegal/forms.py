@@ -5,11 +5,8 @@ from django.utils.translation import gettext_lazy as _
 
 
 class OrangeSNBackendForm(BackendForm):
-    client_id = TrimmedCharField(
-        label=_("Client ID"),
-    )
-    client_secret = TrimmedCharField(
-        label=_("Client Secret"),
+    basic_auth = TrimmedCharField(
+        label=_("Basic Auth"),
     )
     from_phone_number = TrimmedCharField(
         label=_("From Phone number"),
@@ -19,8 +16,7 @@ class OrangeSNBackendForm(BackendForm):
     def gateway_specific_fields(self):
         return crispy.Fieldset(
             _("Orange Senegal Settings"),
-            'client_id',
-            'client_secret',
+            'basic_auth',
             'from_phone_number',
         )
 

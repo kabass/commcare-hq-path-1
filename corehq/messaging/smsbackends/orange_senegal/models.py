@@ -7,6 +7,7 @@ import requests
 from django.utils.functional import classproperty
 
 from dimagi.utils.logging import notify_exception
+import logging
 
 from corehq import toggles
 from corehq.apps.domain.models import Domain
@@ -43,8 +44,7 @@ class SQLOrangeSNBackend(SQLSMSBackend):
     @classmethod
     def get_available_extra_fields(cls):
         return [
-            'client_id',
-            'client_secret',
+            'basic_auth',
             'from_phone_number',
         ]
 
@@ -83,10 +83,10 @@ class SQLOrangeSNBackend(SQLSMSBackend):
         return number.replace(WHATSAPP_PREFIX, "")
 
     @staticmethod
-    def getToken(client_id, client_secret):
+    def getToken(basic_auth):
         response = requests.post('https://api.orange.com/oauth/v3/token',
             headers={
-                    'Authorization': f"Basic {client_id}:{client_secret}",
+                    'Authorization': f"Basic {basic_auth}",
                     'Content-Type': 'application/x-www-form-urlencoded',
                     'Accept': 'application/json'
             }, data={
@@ -94,6 +94,8 @@ class SQLOrangeSNBackend(SQLSMSBackend):
             }
         )
         response = response.json()
+        logging.info("******************************************")
+        logging.info(response)
         return response['access_token']
 
 
@@ -122,7 +124,7 @@ class SQLOrangeSNBackend(SQLSMSBackend):
 
     def send(self, msg, orig_phone_number=None, *args, **kwargs):
         config = self.config
-        token = self.getToken(config.client_id, config.client_secret)
+        token = self.getToken(basic_auth)
         url = f'https://api.orange.com/smsmessaging/v1/outbound/tel:{senderAddress}/requests'
         headers = {
             'Authorization': f'Bearer {token}',
