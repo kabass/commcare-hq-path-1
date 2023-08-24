@@ -82,6 +82,7 @@ class SQLOrangeSNBackend(SQLSMSBackend):
     def convert_from_whatsapp(cls, number):
         return number.replace(WHATSAPP_PREFIX, "")
 
+    @staticmethod
     def getToken(client_id, client_secret):
         response = requests.post('https://api.orange.com/oauth/v3/token',
             headers={
