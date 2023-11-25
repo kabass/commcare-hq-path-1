@@ -26,8 +26,8 @@ hqDefine("users/js/mobile_workers",[
     'zxcvbn/dist/zxcvbn',
     'locations/js/widgets',
     'users/js/custom_data_fields',
-    'hqwebapp/js/components.ko', // for pagination
-    'hqwebapp/js/validators.ko', // email address validation
+    'hqwebapp/js/bootstrap3/components.ko', // for pagination
+    'hqwebapp/js/bootstrap3/validators.ko', // email address validation
     'eonasdan-bootstrap-datetimepicker/build/js/bootstrap-datetimepicker.min',
 ], function (
     $,

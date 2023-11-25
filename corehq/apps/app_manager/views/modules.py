@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 from dataclasses import asdict
 from collections import OrderedDict
 from functools import partial
@@ -21,7 +22,6 @@ from django.views import View
 from django.views.decorators.http import require_GET
 from django_prbac.utils import has_privilege
 from looseversion import LooseVersion
-from lxml import etree
 
 from corehq import privileges, toggles
 from corehq.apps.accounting.utils import domain_has_privilege
@@ -52,6 +52,7 @@ from corehq.apps.app_manager.models import (
     AdvancedModule,
     CaseListForm,
     CaseSearch,
+    CaseSearchCustomSortProperty,
     CaseSearchProperty,
     DefaultCaseSearchProperty,
     DeleteModuleRecord,
@@ -217,6 +218,7 @@ def _get_shared_module_view_context(request, app, module, case_property_builder,
     context = {
         'details': _get_module_details_context(request, app, module, case_property_builder),
         'case_list_form_options': _case_list_form_options(app, module, lang),
+        'form_endpoint_options': _form_endpoint_options(app, module, lang),
         'valid_parents_for_child_module': _get_valid_parents_for_child_module(app, module),
         'shadow_parent': _get_shadow_parent(app, module),
         'case_types': {m.case_type for m in app.modules if m.case_type},
@@ -249,6 +251,8 @@ def _get_shared_module_view_context(request, app, module, case_property_builder,
                     module.search_config.properties if module_offers_search(module) else [],
                 'default_properties':
                     module.search_config.default_properties if module_offers_search(module) else [],
+                'custom_sort_properties':
+                    module.search_config.custom_sort_properties if module_offers_search(module) else [],
                 'auto_launch': module.search_config.auto_launch if module_offers_search(module) else False,
                 'default_search': module.search_config.default_search if module_offers_search(module) else False,
                 'search_filter': module.search_config.search_filter if module_offers_search(module) else "",
@@ -272,7 +276,9 @@ def _get_shared_module_view_context(request, app, module, case_property_builder,
                 'additional_registry_cases': module.search_config.additional_registry_cases,
                 'custom_related_case_property': module.search_config.custom_related_case_property,
                 'inline_search': module.search_config.inline_search,
+                'instance_name': module.search_config.instance_name or "",
                 'include_all_related_cases': module.search_config.include_all_related_cases,
+                'dynamic_search': app.split_screen_dynamic_search,
             },
         },
     }
@@ -517,6 +523,21 @@ def _case_list_form_options(app, module, lang=None):
         'options': options,
         'form': module.case_list_form,
     }
+
+
+def _form_endpoint_options(app, module, lang=None):
+    langs = None if lang is None else [lang]
+    forms = [
+        {
+            "id": form.session_endpoint_id,
+            "form_name": trans(form.name, langs),
+            "module_name": trans(mod.name, langs),
+            "module_case_type": mod.case_type
+        }
+        for mod in app.get_modules()
+        for form in mod.get_forms() if form.session_endpoint_id and form.is_auto_submitting_form(module.case_type)
+    ]
+    return forms
 
 
 def get_parent_select_followup_forms(app, module):
@@ -1168,9 +1189,9 @@ def edit_module_detail_screens(request, domain, app_id, module_unique_id):
     sort_elements = params.get('sort_elements', None)
     print_template = params.get('printTemplate', None)
     search_properties = params.get("search_properties")
-    custom_variables = {
-        'short': params.get("short_custom_variables", None),
-        'long': params.get("long_custom_variables", None)
+    custom_variables_dict = {
+        'short': params.get("short_custom_variables_dict", None),
+        'long': params.get("long_custom_variables_dict", None)
     }
 
     app = get_app(domain, app_id)
@@ -1205,23 +1226,10 @@ def edit_module_detail_screens(request, domain, app_id, module_unique_id):
     if custom_xml is not None:
         detail.short.custom_xml = custom_xml
 
-    if custom_variables['short'] is not None:
-        try:
-            etree.fromstring("<variables>{}</variables>".format(custom_variables['short']))
-        except etree.XMLSyntaxError as error:
-            return HttpResponseBadRequest(
-                "There was an issue with your custom variables: {}".format(error)
-            )
-        detail.short.custom_variables = custom_variables['short']
-
-    if custom_variables['long'] is not None:
-        try:
-            etree.fromstring("<variables>{}</variables>".format(custom_variables['long']))
-        except etree.XMLSyntaxError as error:
-            return HttpResponseBadRequest(
-                "There was an issue with your custom variables: {}".format(error)
-            )
-        detail.long.custom_variables = custom_variables['long']
+    if custom_variables_dict['short'] is not None:
+        detail.short.custom_variables_dict = custom_variables_dict['short']
+    if custom_variables_dict['long'] is not None:
+        detail.long.custom_variables_dict = custom_variables_dict['long']
 
     if sort_elements is not None:
         # Attempt to map new elements to old so we don't lose translations
@@ -1330,6 +1338,12 @@ def edit_module_detail_screens(request, domain, app_id, module_unique_id):
             # force auto launch when data registry load case workflow selected
             force_auto_launch = data_registry_slug and data_registry_workflow == REGISTRY_WORKFLOW_LOAD_CASE
 
+            instance_name = search_properties.get('instance_name', "")
+            if instance_name and not re.match(r"^[a-zA-Z]\w*$", instance_name):
+                return HttpResponseBadRequest(_(
+                    "'{}' is an invalid instance name. It can contain only letters, numbers, and underscores."
+                ).format(instance_name))
+
             module.search_config = CaseSearch(
                 search_label=search_label,
                 search_again_label=search_again_label,
@@ -1347,12 +1361,18 @@ def edit_module_detail_screens(request, domain, app_id, module_unique_id):
                     DefaultCaseSearchProperty.wrap(p)
                     for p in search_properties.get('default_properties')
                 ],
+                custom_sort_properties=[
+                    CaseSearchCustomSortProperty.wrap(p)
+                    for p in search_properties.get('custom_sort_properties')
+                ],
                 data_registry=data_registry_slug,
                 data_registry_workflow=data_registry_workflow,
                 additional_registry_cases=additional_registry_cases,
                 custom_related_case_property=search_properties.get('custom_related_case_property', ""),
                 inline_search=search_properties.get('inline_search', False),
-                include_all_related_cases=search_properties.get('include_all_related_cases', False)
+                instance_name=instance_name,
+                include_all_related_cases=search_properties.get('include_all_related_cases', False),
+                dynamic_search=app.split_screen_dynamic_search and not module.is_auto_select(),
             )
 
     resp = {}

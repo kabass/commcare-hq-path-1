@@ -8,7 +8,7 @@ from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
-from django.db import models, transaction
+from django.db import IntegrityError, models, transaction
 from django.db.models import F, Q
 from django.db.models.manager import Manager
 from django.template.loader import render_to_string
@@ -19,6 +19,7 @@ import jsonfield
 import stripe
 from django_prbac.models import Role
 from memoized import memoized
+from corehq.apps.accounting.utils.stripe import charge_through_stripe
 
 from corehq.apps.domain.shortcuts import publish_domain_saved
 from dimagi.ext.couchdbkit import (
@@ -74,6 +75,7 @@ from corehq.util.mixin import ValidateModelMixin
 from corehq.util.quickcache import quickcache
 from corehq.util.soft_assert import soft_assert
 from corehq.util.view_utils import absolute_reverse
+from django.db.models import OuterRef, Subquery
 
 integer_field_validators = [MaxValueValidator(2147483647), MinValueValidator(-2147483648)]
 
@@ -122,10 +124,12 @@ class InvoicingPlan(object):
 class FeatureType(object):
     USER = "User"
     SMS = "SMS"
+    WEB_USER = "Web User"
 
     CHOICES = (
         (USER, USER),
         (SMS, SMS),
+        (WEB_USER, WEB_USER)
     )
 
 
@@ -166,10 +170,14 @@ class SoftwarePlanVisibility(object):
     PUBLIC = "PUBLIC"
     INTERNAL = "INTERNAL"
     TRIAL = "TRIAL"
+    ANNUAL = "ANNUAL"
+    ARCHIVED = "ARCHIVED"
     CHOICES = (
-        (PUBLIC, "Anyone can subscribe"),
-        (INTERNAL, "Dimagi must create subscription"),
-        (TRIAL, "This is a Trial Plan"),
+        (PUBLIC, "PUBLIC - Anyone can subscribe"),
+        (INTERNAL, "INTERNAL - Dimagi must create subscription"),
+        (TRIAL, "TRIAL- This is a Trial Plan"),
+        (ARCHIVED, "ARCHIVED - hidden from subscription change forms"),
+        (ANNUAL, "ANNUAL - public plans that on annual pricing"),
     )
 
 
@@ -424,6 +432,8 @@ class BillingAccount(ValidateModelMixin, models.Model):
         default=list
     )
 
+    bill_web_user = models.BooleanField(default=False)
+
     class Meta(object):
         app_label = 'accounting'
 
@@ -553,6 +563,8 @@ class BillingAccount(ValidateModelMixin, models.Model):
             email,
             render_to_string('accounting/email/autopay_card_removed.html', context),
             text_content=strip_tags(render_to_string('accounting/email/autopay_card_removed.html', context)),
+            domain=domain,
+            use_domain_gateway=True,
         )
 
     def _send_autopay_card_added_email(self, domain):
@@ -584,6 +596,8 @@ class BillingAccount(ValidateModelMixin, models.Model):
             email,
             render_to_string('accounting/email/invoice_autopay_setup.html', context),
             text_content=strip_tags(render_to_string('accounting/email/invoice_autopay_setup.html', context)),
+            domain=domain,
+            use_domain_gateway=True,
         )
 
     @staticmethod
@@ -881,10 +895,42 @@ class SoftwarePlanVersion(models.Model):
         super(SoftwarePlanVersion, self).save(*args, **kwargs)
         SoftwarePlan.get_version.clear(self.plan)
 
+    @staticmethod
+    def filter_version_query(query, edition=None, visibility=None, is_plan_query=False):
+        prefix = "plan__" if not is_plan_query else ""
+
+        if edition:
+            query = query.filter(**{f"{prefix}edition": edition})
+        if visibility:
+            query = query.filter(**{f"{prefix}visibility": visibility})
+        return query
+
+    @classmethod
+    def get_most_recent_version(cls, edition=None, visibility=None):
+        plan_versions_query = cls.objects.all()
+        plan_versions_query = cls.filter_version_query(plan_versions_query, edition, visibility)
+
+        latest_versions_date = plan_versions_query.filter(
+            plan=OuterRef('pk')
+        ).order_by('-date_created').values('date_created')[:1]
+
+        software_plans_query = SoftwarePlan.objects.all()
+        software_plans_query = cls.filter_version_query(software_plans_query, edition, visibility,
+                                                        is_plan_query=True)
+
+        latest_versions = software_plans_query.annotate(
+            latest_version_date=Subquery(latest_versions_date)
+        ).values('id', 'name', 'latest_version_date')
+
+        return cls.objects.filter(
+            plan__in=[item['id'] for item in latest_versions],
+            date_created__in=[item['latest_version_date'] for item in latest_versions]
+        )
+
     @property
     def version(self):
-        return (self.plan.softwareplanversion_set.count() -
-                self.plan.softwareplanversion_set.filter(
+        return (self.plan.softwareplanversion_set.count()
+                - self.plan.softwareplanversion_set.filter(
                     date_created__gt=self.date_created).count())
 
     @property
@@ -1359,6 +1405,30 @@ class Subscription(models.Model):
         for property_name, property_value in kwargs.items():
             if property_value is not None:
                 setattr(self, property_name, property_value)
+
+    def upgrade_plan_for_consistency(self, new_plan_version, upgrade_note, web_user):
+        """
+        Upgrade subscription for keeping consistency should only update the software plan,
+        but keep all other properties like service_type, pro_bono_status,etc ... the same
+        """
+
+        self.change_plan(
+            new_plan_version=new_plan_version,
+            note=upgrade_note,
+            web_user=web_user,
+            service_type=self.service_type,
+            pro_bono_status=self.pro_bono_status,
+            funding_source=self.funding_source,
+            internal_change=True,
+            do_not_invoice=self.do_not_invoice,
+            no_invoice_reason=self.no_invoice_reason,
+            do_not_email_invoice=self.do_not_email_invoice,
+            do_not_email_reminder=self.do_not_email_reminder,
+            auto_generate_credits=self.auto_generate_credits,
+            skip_invoicing_if_no_feature_charges=self.skip_invoicing_if_no_feature_charges,
+            skip_auto_downgrade=self.skip_auto_downgrade,
+            skip_auto_downgrade_reason=self.skip_auto_downgrade_reason,
+        )
 
     @transaction.atomic
     def change_plan(self, new_plan_version, date_end=None,
@@ -1947,8 +2017,8 @@ class Subscription(models.Model):
             return False, None
         last_subscription = last_subscription.latest('date_created')
         return (
-            last_subscription.account.pk == account.pk and
-            last_subscription.plan_version.pk == plan_version.pk
+            last_subscription.account.pk == account.pk
+            and last_subscription.plan_version.pk == plan_version.pk
         ), last_subscription
 
     @property
@@ -1984,6 +2054,18 @@ class InvoiceBaseManager(models.Manager):
 
     def get_queryset(self):
         return super(InvoiceBaseManager, self).get_queryset().filter(is_hidden_to_ops=False)
+
+    def create_or_get(self, **kwargs):
+        """like get_or_create, but try create first"""
+        try:
+            with transaction.atomic(using=self.db):
+                return self.create(**kwargs), True
+        except IntegrityError:
+            try:
+                return self.get(**kwargs), False
+            except self.model.DoesNotExist:
+                pass
+            raise
 
 
 class InvoiceBase(models.Model):
@@ -2099,9 +2181,16 @@ class Invoice(InvoiceBase):
     to CreditAdjustments.
     """
     subscription = models.ForeignKey(Subscription, on_delete=models.PROTECT)
+    duplicate_invoice_id = models.IntegerField(null=True)
 
     class Meta(object):
         app_label = 'accounting'
+        constraints = [
+            models.UniqueConstraint(
+                fields=['subscription', 'date_start', 'date_end'],
+                name='unique_invoice_per_subscription_period',
+                condition=models.Q(('is_hidden_to_ops', False), ('duplicate_invoice_id__isnull', True))),
+        ]
 
     def save(self, *args, **kwargs):
         from corehq.apps.accounting.mixins import get_overdue_invoice
@@ -2247,6 +2336,13 @@ class CustomerInvoice(InvoiceBase):
 
     class Meta(object):
         app_label = 'accounting'
+        constraints = [
+            models.UniqueConstraint(
+                fields=['account', 'date_start', 'date_end'],
+                name='unique_customer_invoice_per_subscription_period',
+                condition=models.Q(is_hidden_to_ops=False)
+            )
+        ]
 
     @property
     def is_customer_invoice(self):
@@ -2606,8 +2702,8 @@ class BillingRecord(BillingRecordBase):
     def should_send_email(self):
         subscription = self.invoice.subscription
         autogenerate = (subscription.auto_generate_credits and not self.invoice.balance)
-        small_contracted = (self.invoice.balance <= SMALL_INVOICE_THRESHOLD and
-                            subscription.service_type == SubscriptionType.IMPLEMENTATION)
+        small_contracted = (self.invoice.balance <= SMALL_INVOICE_THRESHOLD
+                            and subscription.service_type == SubscriptionType.IMPLEMENTATION)
         hidden = self.invoice.is_hidden
         do_not_email_invoice = self.invoice.subscription.do_not_email_invoice
         return not (autogenerate or small_contracted or hidden or do_not_email_invoice)
@@ -3462,8 +3558,8 @@ class CreditLine(models.Model):
         return cls.objects.filter(
             account=account, subscription__exact=None, is_active=True
         ).filter(
-            Q(is_product=True) |
-            Q(feature_type__in=[f[0] for f in FeatureType.CHOICES])
+            Q(is_product=True)
+            | Q(feature_type__in=[f[0] for f in FeatureType.CHOICES])
         ).all()
 
     @classmethod
@@ -3481,8 +3577,8 @@ class CreditLine(models.Model):
     @classmethod
     def get_non_general_credits_by_subscription(cls, subscription):
         return cls.objects.filter(subscription=subscription, is_active=True).filter(
-            Q(is_product=True) |
-            Q(feature_type__in=[f[0] for f in FeatureType.CHOICES])
+            Q(is_product=True)
+            | Q(feature_type__in=[f[0] for f in FeatureType.CHOICES])
         ).all()
 
     @classmethod
@@ -3679,16 +3775,31 @@ class StripePaymentMethod(PaymentMethod):
                 account.remove_autopay_user()
 
     def create_card(self, stripe_token, billing_account, domain, autopay=False):
+        """
+        Creates and associates a new card with the Stripe customer.
+
+        This method uses a Stripe token (usually generated on the client side)
+        to securely create a new card and associate it with the customer
+        represented by this instance. Additionally, if the 'autopay' flag is
+        set to True, it sets the card to be used for automatic payments for
+        a specific billing account and domain.
+
+        Parameters:
+        - stripe_token (str): The token representing the card details, typically
+                            generated using Stripe.js on the client side.
+        - billing_account (BillingAccount): The account for which the card might
+                                            be set for automatic payments.
+        - domain (str): The domain associated with the billing account.
+        - autopay (bool, optional): Flag indicating if the card should be set for
+                                    automatic payments. Default is False.
+
+        Returns:
+        - card (stripe.Card): The newly created Stripe card object.
+        """
         customer = self.customer
         card = customer.cards.create(card=stripe_token)
-        self.set_default_card(card)
         if autopay:
             self.set_autopay(card, billing_account, domain)
-        return card
-
-    def set_default_card(self, card):
-        self.customer.default_card = card
-        self.customer.save()
         return card
 
     def set_autopay(self, card, billing_account, domain):
@@ -3745,15 +3856,15 @@ class StripePaymentMethod(PaymentMethod):
         """
         return 'auto_pay_{billing_account_id}'.format(billing_account_id=billing_account.id)
 
-    def create_charge(self, card, amount_in_dollars, description):
+    def create_charge(self, card, amount_in_dollars, description, idempotency_key=None):
         """ Charges a stripe card and returns a transaction id """
-        amount_in_cents = int((amount_in_dollars * Decimal('100')).quantize(Decimal(10)))
-        transaction_record = stripe.Charge.create(
+        transaction_record = charge_through_stripe(
             card=card,
             customer=self.customer,
-            amount=amount_in_cents,
+            amount_in_dollars=amount_in_dollars,
             currency=settings.DEFAULT_CURRENCY,
             description=description,
+            idempotency_key=idempotency_key
         )
         return transaction_record.id
 

@@ -1,6 +1,5 @@
 from datetime import datetime
 
-from django.core.validators import MaxLengthValidator
 from django.db import models
 from django.utils.translation import gettext as _, gettext_lazy
 
@@ -94,9 +93,8 @@ class CaseProperty(models.Model):
         default=DataType.UNDEFINED,
         blank=True,
     )
-    group = models.TextField(default='', blank=True)
     index = models.IntegerField(default=0, blank=True)
-    group_obj = models.ForeignKey(
+    group = models.ForeignKey(
         CasePropertyGroup,
         on_delete=models.CASCADE,
         related_name='properties',
@@ -125,6 +123,10 @@ class CaseProperty(models.Model):
                     name=name, case_type__name=case_type, case_type__domain=domain
                 )
             except CaseProperty.DoesNotExist:
+                from corehq.apps.hqcase.case_helper import CaseCopier
+                if name == CaseCopier.COMMCARE_CASE_COPY_PROPERTY_NAME:
+                    raise ValueError(f"{name} is a reserved property name")
+
                 case_type_obj = CaseType.get_or_create(domain, case_type)
                 prop = CaseProperty.objects.create(case_type=case_type_obj, name=name)
             return prop
@@ -160,9 +162,8 @@ class CaseProperty(models.Model):
 
     @property
     def group_name(self):
-        if self.group_obj:
-            return self.group_obj.name
-        return self.group
+        if self.group:
+            return self.group.name
 
 
 class CasePropertyAllowedValue(models.Model):

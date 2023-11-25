@@ -14,6 +14,7 @@ from corehq.apps.app_manager.suite_xml.post_process.workflow import (
     WorkflowDatumMeta,
     WorkflowHelper,
     prepend_parent_frame_children,
+    WorkflowQueryMeta
 )
 from corehq.apps.app_manager.suite_xml.xml_models import (
     Argument,
@@ -21,8 +22,9 @@ from corehq.apps.app_manager.suite_xml.xml_models import (
     SessionEndpoint,
     Stack,
     StackDatum,
-    StackInstanceDatum,
+    StackInstanceDatum
 )
+from corehq.apps.app_manager.util import module_uses_inline_search
 from corehq.util.timer import time_method
 
 
@@ -46,7 +48,8 @@ class EndpointsHelper(PostProcessor):
                 for form in module.get_suite_forms():
                     if form.session_endpoint_id:
                         self.suite.endpoints.append(self._make_session_endpoint(
-                            form.session_endpoint_id, module, form))
+                            form.session_endpoint_id, module, form,
+                            respect_relevancy=getattr(form, 'respect_relevancy', None)))
             elif module.session_endpoint_id:
                 for form in module.get_suite_forms():
                     endpoint = next(
@@ -55,20 +58,23 @@ class EndpointsHelper(PostProcessor):
                         self.suite.endpoints.append(self._make_session_endpoint(
                             endpoint.session_endpoint_id, module, form))
 
-    def _make_session_endpoint(self, endpoint_id, module, form=None, should_add_last_selection_datum=True):
+    def _make_session_endpoint(self, endpoint_id, module, form=None, should_add_last_selection_datum=True,
+                               respect_relevancy=None):
         stack = Stack()
         children = self.get_frame_children(module, form)
         argument_ids = self.get_argument_ids(children, form, should_add_last_selection_datum)
 
-        # Add a claim request for each endpoint argument.
-        # This assumes that all arguments are case ids.
-        non_computed_arguments = [
-            child for child in children
-            if isinstance(child, WorkflowDatumMeta) and child.requires_selection
-            and (should_add_last_selection_datum or child != children[-1])
-        ]
-        for arg in non_computed_arguments:
-            self._add_claim_frame(stack, arg, endpoint_id)
+        using_inline_search = module_uses_inline_search(module)
+        if not using_inline_search:
+            # Add a claim request for each endpoint argument.
+            # This assumes that all arguments are case ids.
+            non_computed_arguments = [
+                child for child in children
+                if isinstance(child, WorkflowDatumMeta) and child.requires_selection
+                and (should_add_last_selection_datum or child != children[-1])
+            ]
+            for arg in non_computed_arguments:
+                self._add_claim_frame(stack, arg, endpoint_id)
 
         # Add a frame to navigate to the endpoint
         frame = PushFrame()
@@ -76,6 +82,8 @@ class EndpointsHelper(PostProcessor):
         for child in children:
             if isinstance(child, CommandId):
                 frame.add_command(child.to_command())
+            elif isinstance(child, WorkflowQueryMeta):
+                self._add_query_datum(frame, child)
             elif child.id in argument_ids:
                 self._add_datum_for_arg(frame, child)
 
@@ -96,11 +104,14 @@ class EndpointsHelper(PostProcessor):
             else:
                 arguments.append(Argument(id=arg_id))
 
-        return SessionEndpoint(
+        endpoint = SessionEndpoint(
             id=endpoint_id,
             arguments=arguments,
-            stack=stack,
+            stack=stack
         )
+        if respect_relevancy is False:
+            endpoint.respect_relevancy = False
+        return endpoint
 
     def get_argument_ids(self, frame_children, form=None, should_add_last_selection_datum=True):
 
@@ -129,6 +140,9 @@ class EndpointsHelper(PostProcessor):
             else StackDatum(id=child.id, value=f"${child.id}")
 
         frame.add_datum(datum)
+
+    def _add_query_datum(self, frame, child):
+        frame.add_datum(child.to_stack_datum())
 
     def get_frame_children(self, module, form):
         helper = WorkflowHelper(self.suite, self.app, self.app.get_modules())

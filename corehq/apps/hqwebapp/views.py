@@ -11,7 +11,6 @@ from urllib.parse import urlparse
 from oauth2_provider.models import get_application_model
 
 import httpagentparser
-import requests
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
@@ -72,11 +71,12 @@ from corehq.apps.dropbox.exceptions import (
 )
 from corehq.apps.dropbox.models import DropboxUploadHelper
 from corehq.apps.dropbox.views import DROPBOX_ACCESS_TOKEN, DropboxAuthInitiate
+from corehq.apps.email.models import EmailSettings
 from corehq.apps.hqadmin.management.commands.deploy_in_progress import (
     DEPLOY_IN_PROGRESS_FLAG,
 )
 from corehq.apps.hqadmin.service_checks import CHECKS, run_checks
-from corehq.apps.hqwebapp.decorators import waf_allow
+from corehq.apps.hqwebapp.decorators import waf_allow, use_bootstrap5
 from corehq.apps.hqwebapp.doc_info import get_doc_info
 from corehq.apps.hqwebapp.doc_lookup import lookup_doc_id
 from corehq.apps.hqwebapp.encoders import LazyEncoder
@@ -89,6 +89,7 @@ from corehq.apps.hqwebapp.forms import (
 from corehq.apps.hqwebapp.models import HQOauthApplication
 from corehq.apps.hqwebapp.login_utils import get_custom_login_page
 from corehq.apps.hqwebapp.utils import get_environment_friendly_name
+from corehq.apps.hqwebapp.utils.bootstrap import get_bootstrap_version
 from corehq.apps.locations.permissions import location_safe
 from corehq.apps.sms.event_handlers import handle_email_messaging_subevent
 from corehq.apps.users.event_handlers import handle_email_invite_message
@@ -134,6 +135,7 @@ def format_traceback_the_way_python_does(type, exc, tb):
     return f'Traceback (most recent call last):\n{tb}{type.__name__}: {exc}'
 
 
+@use_bootstrap5
 def server_error(request, template_name='500.html', exception=None):
     """
     500 error handler.
@@ -155,7 +157,7 @@ def server_error(request, template_name='500.html', exception=None):
 
     traceback_text = format_traceback_the_way_python_does(type, exc, tb)
     traceback_key = uuid.uuid4().hex
-    cache.cache.set(traceback_key, traceback_text, 60*60)
+    cache.cache.set(traceback_key, traceback_text, 60 * 60)
 
     if settings.UNIT_TESTING:
         # Explicitly don't render the 500 page during unit tests to prevent
@@ -175,6 +177,7 @@ def server_error(request, template_name='500.html', exception=None):
     ))
 
 
+@use_bootstrap5
 def not_found(request, template_name='404.html', exception=None):
     """
     404 error handler.
@@ -327,6 +330,7 @@ def server_up(req):
         return HttpResponse("success")
 
 
+@use_bootstrap5
 def _no_permissions_message(request, template_name="403.html", message=None):
     t = loader.get_template(template_name)
     return t.render(
@@ -339,6 +343,7 @@ def _no_permissions_message(request, template_name="403.html", message=None):
     )
 
 
+@use_bootstrap5
 def no_permissions(request, redirect_to=None, template_name="403.html", message=None, exception=None):
     """
     403 error handler.
@@ -346,10 +351,12 @@ def no_permissions(request, redirect_to=None, template_name="403.html", message=
     return HttpResponseForbidden(_no_permissions_message(request, template_name, message))
 
 
+@use_bootstrap5
 def no_permissions_exception(request, template_name="403.html", message=None):
     return Http403(_no_permissions_message(request, template_name, message))
 
 
+@use_bootstrap5
 def csrf_failure(request, reason=None, template_name="csrf_failure.html"):
     t = loader.get_template(template_name)
     return HttpResponseForbidden(t.render(
@@ -416,6 +423,8 @@ def _login(req, domain_name, custom_login_page, extra_context=None):
         couch_user = CouchUser.get_by_username(req.POST['auth-username'].lower())
         if couch_user:
             response.set_cookie(settings.LANGUAGE_COOKIE_NAME, couch_user.language)
+            # reset cookie to an empty list on login to show domain alerts again
+            response.set_cookie('viewed_domain_alerts', [])
             activate(couch_user.language)
 
     return response
@@ -464,7 +473,7 @@ def iframe_domain_login(req, domain):
 @xframe_options_sameorigin
 @location_safe
 def iframe_sso_login_pending(request):
-    return TemplateView.as_view(template_name='hqwebapp/iframe_sso_login_pending.html')(request)
+    return TemplateView.as_view(template_name='hqwebapp/bootstrap3/iframe_sso_login_pending.html')(request)
 
 
 class HQLoginView(LoginView):
@@ -568,15 +577,15 @@ def login_new_window(request):
 @location_safe
 @login_required
 def domain_login_new_window(request):
-    template = ('hqwebapp/iframe_sso_login_success.html'
+    template = ('hqwebapp/bootstrap3/iframe_sso_login_success.html'
                 if is_request_using_sso(request)
-                else 'hqwebapp/iframe_close_window.html')
+                else 'hqwebapp/bootstrap3/iframe_close_window.html')
     return TemplateView.as_view(template_name=template)(request)
 
 
 @login_and_domain_required
 @track_domain_request(calculated_prop='cp_n_downloads_custom_exports')
-def retrieve_download(req, domain, download_id, template="hqwebapp/includes/file_download.html"):
+def retrieve_download(req, domain, download_id, template="hqwebapp/includes/bootstrap3/file_download.html"):
     next_url = req.GET.get('next', reverse('my_project_settings', args=[domain]))
     return soil_views.retrieve_download(req, download_id, template,
                                         extra_context={'domain': domain, 'next_url': next_url})
@@ -639,8 +648,10 @@ def debug_notify(request):
     try:
         0 // 0
     except ZeroDivisionError:
-        notify_exception(request,
-            "If you want to achieve a 500-style email-out but don't want the user to see a 500, use notify_exception(request[, message])")
+        notify_exception(
+            request,
+            "If you want to achieve a 500-style email-out but don't want the user to see a 500, "
+            "use notify_exception(request[, message])")
     return HttpResponse("Email should have been sent")
 
 
@@ -841,14 +852,16 @@ def render_static(request, template, page_name):
     """
     Takes an html file and renders it Commcare HQ's styling
     """
-    return render(request, "hqwebapp/blank.html",
+    return render(request, f"hqwebapp/{get_bootstrap_version()}/blank.html",
                   {'tmpl': template, 'page_name': page_name})
 
 
+@use_bootstrap5
 def apache_license(request):
     return render_static(request, "apache_license.html", _("Apache License"))
 
 
+@use_bootstrap5
 def bsd_license(request):
     return render_static(request, "bsd_license.html", _("BSD License"))
 
@@ -856,7 +869,7 @@ def bsd_license(request):
 class BasePageView(TemplateView):
     urlname = None  # name of the view used in urls
     page_title = None  # what shows up in the <title>
-    template_name = 'hqwebapp/base_page.html'
+    template_name = 'hqwebapp/bootstrap3/base_page.html'
 
     @property
     def page_name(self):
@@ -1239,14 +1252,15 @@ class MaintenanceAlertsView(BasePageView):
     page_title = gettext_noop("Maintenance Alerts")
     template_name = 'hqwebapp/maintenance_alerts.html'
 
+    @method_decorator(use_bootstrap5)
     @method_decorator(require_superuser)
     def dispatch(self, request, *args, **kwargs):
         return super(MaintenanceAlertsView, self).dispatch(request, *args, **kwargs)
 
     @method_decorator(require_superuser)
     def post(self, request):
-        from corehq.apps.hqwebapp.models import MaintenanceAlert
-        ma = MaintenanceAlert.objects.get(id=request.POST.get('alert_id'))
+        from corehq.apps.hqwebapp.models import Alert
+        ma = Alert.objects.get(id=request.POST.get('alert_id'), created_by_domain=None)
         command = request.POST.get('command')
         if command == 'activate':
             ma.active = True
@@ -1257,8 +1271,11 @@ class MaintenanceAlertsView(BasePageView):
 
     @property
     def page_context(self):
-        from corehq.apps.hqwebapp.models import MaintenanceAlert
+        from corehq.apps.hqwebapp.models import Alert
         now = datetime.utcnow()
+        alerts = Alert.objects.filter(
+            created_by_domain__isnull=True
+        ).order_by('-active', '-created')[:20]
         return {
             'timezones': pytz.common_timezones,
             'alerts': [{
@@ -1272,7 +1289,8 @@ class MaintenanceAlertsView(BasePageView):
                 'expired': alert.end_time and alert.end_time < now,
                 'id': alert.id,
                 'domains': ", ".join(alert.domains) if alert.domains else "All domains",
-            } for alert in MaintenanceAlert.objects.order_by('-active', '-created')[:20]]
+                'created_by_user': alert.created_by_user,
+            } for alert in alerts]
         }
 
     @property
@@ -1283,7 +1301,7 @@ class MaintenanceAlertsView(BasePageView):
 @require_POST
 @require_superuser
 def create_alert(request):
-    from corehq.apps.hqwebapp.models import MaintenanceAlert
+    from corehq.apps.hqwebapp.models import Alert
     alert_text = request.POST.get('alert_text')
     domains = request.POST.get('domains')
     domains = domains.split() if domains else None
@@ -1301,8 +1319,9 @@ def create_alert(request):
         tzinfo=pytz.timezone(timezone)
     ).server_time().done() if end_time else None
 
-    MaintenanceAlert(active=False, text=alert_text, domains=domains,
-                     start_time=start_time, end_time=end_time, timezone=timezone).save()
+    Alert(active=False, text=alert_text, domains=domains,
+          start_time=start_time, end_time=end_time, timezone=timezone,
+          created_by_user=request.couch_user.username).save()
     return HttpResponseRedirect(reverse('alerts'))
 
 
@@ -1334,11 +1353,15 @@ def temporary_google_verify(request):
 @waf_allow('XSS_BODY')
 @require_POST
 @csrf_exempt
-def log_email_event(request, secret):
+def log_email_event(request, secret, domain=None):
     # From Amazon SNS:
     # https://docs.aws.amazon.com/ses/latest/DeveloperGuide/event-publishing-retrieving-sns-examples.html
-
-    if secret != settings.SNS_EMAIL_EVENT_SECRET:
+    email_setting = EmailSettings.objects.filter(domain=domain).first() if domain else None
+    if (email_setting and email_setting.use_this_gateway and email_setting.use_tracking_headers):
+        SNS_email_event_secret = email_setting.sns_secret
+    else:
+        SNS_email_event_secret = settings.SNS_EMAIL_EVENT_SECRET
+    if secret != SNS_email_event_secret:
         return HttpResponse("Incorrect secret", status=403, content_type='text/plain')
 
     request_json = json.loads(request.body)
@@ -1373,7 +1396,7 @@ def log_email_event(request, secret):
 class OauthApplicationRegistration(BasePageView):
     urlname = 'oauth_application_registration'
     page_title = "Oauth Application Registration"
-    template_name = "hqwebapp/oauth_application_registration_form.html"
+    template_name = "hqwebapp/bootstrap3/oauth_application_registration_form.html"
 
     @property
     def page_url(self):

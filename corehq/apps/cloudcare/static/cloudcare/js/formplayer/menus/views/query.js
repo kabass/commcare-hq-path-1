@@ -1,7 +1,7 @@
 /*global DOMPurify, Marionette */
 
 hqDefine("cloudcare/js/formplayer/menus/views/query", function () {
-    // 'hqwebapp/js/hq.helpers' is a dependency. It needs to be added
+    // 'hqwebapp/js/bootstrap3/hq.helpers' is a dependency. It needs to be added
     // explicitly when webapps is migrated to requirejs
     var kissmetrics = hqImport("analytix/js/kissmetrix"),
         cloudcareUtils = hqImport("cloudcare/js/utils"),
@@ -10,7 +10,8 @@ hqDefine("cloudcare/js/formplayer/menus/views/query", function () {
         formEntryUtils = hqImport("cloudcare/js/form_entry/utils"),
         FormplayerFrontend = hqImport("cloudcare/js/formplayer/app"),
         formplayerUtils = hqImport("cloudcare/js/formplayer/utils/utils"),
-        initialPageData = hqImport("hqwebapp/js/initial_page_data");
+        initialPageData = hqImport("hqwebapp/js/initial_page_data"),
+        toggles = hqImport("hqwebapp/js/toggles");
 
     var separator = " to ",
         serverSeparator = "__",
@@ -156,12 +157,12 @@ hqDefine("cloudcare/js/formplayer/menus/views/query", function () {
                     );
                     return true;
                 }
-                formEntryUtils.renderMapboxInput(
-                    inputId,
-                    geocoderItemCallback(id, model),
-                    geocoderOnClearCallback(id),
-                    initialPageData
-                );
+                formEntryUtils.renderMapboxInput({
+                    divId: inputId,
+                    itemCallback: geocoderItemCallback(id, model),
+                    clearCallBack: geocoderOnClearCallback(id),
+                    responseDataTypes: 'address,region,place,postcode',
+                });
                 var divEl = $field.find('.mapboxgl-ctrl-geocoder');
                 divEl.css("max-width", "none");
                 divEl.css("width", "100%");
@@ -230,17 +231,14 @@ hqDefine("cloudcare/js/formplayer/menus/views/query", function () {
 
         _setItemset: function (itemsetChoices, itemsetChoicesKey) {
             itemsetChoices = itemsetChoices || [];
+            itemsetChoicesKey = itemsetChoicesKey || [];
             let itemsetChoicesDict = {};
 
-            if (this.parentView.selectValuesByKeys) {
-                itemsetChoicesKey = itemsetChoicesKey || [];
-                itemsetChoicesKey.forEach((key,i) => itemsetChoicesDict[key] = itemsetChoices[i]);
-                this.model.set({
-                    itemsetChoicesKey: itemsetChoicesKey,
-                });
-            } else {
-                itemsetChoices.forEach((value,i) => itemsetChoicesDict[i] = value);
-            }
+            itemsetChoicesKey.forEach((key,i) => itemsetChoicesDict[key] = itemsetChoices[i]);
+            this.model.set({
+                itemsetChoicesKey: itemsetChoicesKey,
+            });
+
             this.model.set({
                 itemsetChoices: itemsetChoices,
                 itemsetChoicesDict: itemsetChoicesDict,
@@ -343,16 +341,17 @@ hqDefine("cloudcare/js/formplayer/menus/views/query", function () {
 
         changeDateQueryField: function (e) {
             this.model.set('value', $(e.currentTarget).val());
-            this.notifyParentOfFieldChange(e);
+            var useDynamicSearch = Date(this.model._previousAttributes.value) !== Date($(e.currentTarget).val());
+            this.notifyParentOfFieldChange(e, useDynamicSearch);
             this.parentView.setStickyQueryInputs();
         },
 
-        notifyParentOfFieldChange: function (e) {
+        notifyParentOfFieldChange: function (e, useDynamicSearch = true) {
             if (this.model.get('input') === 'address') {
                 // Geocoder doesn't have a real value, doesn't need to be sent to formplayer
                 return;
             }
-            this.parentView.notifyFieldChange(e, this);
+            this.parentView.notifyFieldChange(e, this, useDynamicSearch);
         },
 
         toggleBlankSearch: function (e) {
@@ -372,13 +371,38 @@ hqDefine("cloudcare/js/formplayer/menus/views/query", function () {
             self.parentView.setStickyQueryInputs();
         },
 
-        onRender: function () {
+        _initializeSelect2Dropdown: function () {
+            let placeHolderText;
+            switch (this.model.get('input')) {
+                case 'select1':
+                    placeHolderText = gettext('Please select one');
+                    break;
+                case 'select':
+                    placeHolderText = gettext('Please select one or more');
+                    break;
+                default:
+                    placeHolderText = ' ';
+                    break;
+            }
+
             this.ui.valueDropdown.select2({
                 allowClear: true,
-                placeholder: " ",   // required for allowClear to work
+                placeholder: placeHolderText,   // required for allowClear to work
                 escapeMarkup: function (m) { return DOMPurify.sanitize(m); },
             });
-            this.ui.hqHelp.hqHelp();
+        },
+
+        onRender: function () {
+            this._initializeSelect2Dropdown();
+            this.ui.hqHelp.hqHelp({
+                placement: () => {
+                    if (this.parentView.options.sidebarEnabled && this.parentView.smallScreenEnabled) {
+                        return 'auto bottom';
+                    } else {
+                        return 'auto right';
+                    }
+                },
+            });
             cloudcareUtils.initDatePicker(this.ui.date, this.model.get('value'));
             this.ui.dateRange.daterangepicker({
                 locale: {
@@ -433,18 +457,15 @@ hqDefine("cloudcare/js/formplayer/menus/views/query", function () {
 
         initialize: function (options) {
             this.parentModel = options.collection.models || [];
+            this.dynamicSearchEnabled = options.hasDynamicSearch && this.options.sidebarEnabled;
 
-            // whether the select prompt selection is passed as itemset keys
-            // only here to maintain backward compatibility and can be removed
-            // once web apps fully transition using keys to convey select prompt selection.
-            this.selectValuesByKeys = false;
+            this.smallScreenListener = cloudcareUtils.smallScreenListener(smallScreenEnabled => {
+                this.handleSmallScreenChange(smallScreenEnabled);
+            });
+            this.smallScreenListener.listen();
 
-            for (let model of this.parentModel) {
-                if ("itemsetChoicesKey" in model.attributes) {
-                    this.selectValuesByKeys = true;
-                    break;
-                }
-            }
+            this.dynamicSearchEnabled = !(options.disableDynamicSearch || this.smallScreenEnabled) &&
+                (toggles.toggleEnabled('DYNAMICALLY_UPDATE_SEARCH_RESULTS') && this.options.sidebarEnabled);
         },
 
         templateContext: function () {
@@ -468,6 +489,17 @@ hqDefine("cloudcare/js/formplayer/menus/views/query", function () {
             'click @ui.submitButton': 'submitAction',
         },
 
+        handleSmallScreenChange: function (enabled) {
+            this.smallScreenEnabled = enabled;
+            if (this.options.sidebarEnabled) {
+                if (this.smallScreenEnabled) {
+                    $('#sidebar-region').addClass('collapse');
+                } else {
+                    $('#sidebar-region').removeClass('collapse');
+                }
+            }
+        },
+
         getAnswers: function () {
             var answers = {};
             this.children.each(function (childView) {
@@ -479,7 +511,7 @@ hqDefine("cloudcare/js/formplayer/menus/views/query", function () {
             return answers;
         },
 
-        notifyFieldChange: function (e, changedChildView) {
+        notifyFieldChange: function (e, changedChildView, useDynamicSearch) {
             e.preventDefault();
             var self = this;
             self.validateFieldChange(changedChildView).always(function (response) {
@@ -510,6 +542,9 @@ hqDefine("cloudcare/js/formplayer/menus/views/query", function () {
                     }
                 }
             });
+            if (self.dynamicSearchEnabled && useDynamicSearch) {
+                self.updateSearchResults();
+            }
         },
 
         clearAction: function () {
@@ -518,20 +553,43 @@ hqDefine("cloudcare/js/formplayer/menus/views/query", function () {
                 childView.clear();
             });
             self.setStickyQueryInputs();
+            if (self.dynamicSearchEnabled) {
+                self.updateSearchResults();
+            }
         },
 
         submitAction: function (e) {
             var self = this;
             e.preventDefault();
+            self.performSubmit();
+        },
 
+        performSubmit: function () {
+            var self = this;
             self.validateAllFields().done(function () {
                 FormplayerFrontend.trigger(
                     "menu:query",
                     self.getAnswers(),
-                    self.selectValuesByKeys,
                     self.options.sidebarEnabled
                 );
+                if (self.smallScreenEnabled && self.options.sidebarEnabled) {
+                    $('#sidebar-region').collapse('hide');
+                }
+                sessionStorage.submitPerformed = true;
             });
+        },
+
+        updateSearchResults: function () {
+            var self = this;
+            var invalidRequiredFields = [];
+            self.children.each(function (childView) {
+                if (childView.hasRequiredError()) {
+                    invalidRequiredFields.push(childView.model.get('text'));
+                }
+            });
+            if (invalidRequiredFields.length === 0) {
+                self.performSubmit();
+            }
         },
 
         validateFieldChange: function (changedChildView) {
@@ -597,7 +655,6 @@ hqDefine("cloudcare/js/formplayer/menus/views/query", function () {
             urlObject.setQueryData({
                 inputs: self.getAnswers(),
                 execute: false,
-                selectValuesByKeys: self.selectValuesByKeys,
             });
             var fetchingPrompts = FormplayerFrontend.getChannel().request("app:select:menus", urlObject);
             $.when(fetchingPrompts).done(function (response) {
@@ -632,6 +689,10 @@ hqDefine("cloudcare/js/formplayer/menus/views/query", function () {
 
         onAttach: function () {
             this.initGeocoders();
+        },
+
+        onBeforeDetach: function () {
+            this.smallScreenListener.stopListening();
         },
 
         initGeocoders: function () {

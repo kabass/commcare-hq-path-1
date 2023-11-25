@@ -6,7 +6,7 @@
         class: isRepetition ? 'repetition' : '',
         css: {
           'gr-no-children': $data.children().length === 0,
-          'gr-has-no-questions': _.all($data.children(), function(d) { return d.type() !== 'question' }),
+          'gr-has-no-questions': _.all($data.children(), function(d) { return d.type() !== 'grouped-question-tile-row' }),
           'gr-has-no-nested-questions': !$data.hasAnyNestedQuestions(),
           'panel panel-default': collapsible,
           'required-group': !showChildren() && childrenRequired(),
@@ -27,7 +27,10 @@
                 'tabindex': isVisibleGroup() ? '0' : '-1'
               },
         click: toggleChildren,
-        event: {keypress: keyPressAction}">
+        event: {keypress: keyPressAction},
+        style: {'background-color': headerBackgroundColor(),
+                'color': headerBackgroundColor() ? 'white' : '',
+        }">
       <div data-bind="ifnot: collapsible">
         <legend>
           <span class="caption webapp-markdown-output"
@@ -192,7 +195,15 @@
 </script>
 
 
+<script type="text/html" id="grouped-question-tile-row-fullform-ko-template">
+  <div class="row">
+    <div data-bind="template: { name: childTemplate, foreach: $data.children }"/>
+  </div>
+</script>
+
+
 <script type="text/html" id="question-fullform-ko-template">
+  <div data-bind="class:questionTileWidth">
   <!-- ko if: datatype() !== 'info' -->
   <div class="q form-group" data-bind="
             css: {
@@ -202,7 +213,12 @@
             }
         ">
     <label class="caption control-label" data-bind="css: labelWidth, attr: {'for': entry.entryId}">
-      <div data-bind="css: {'row': help()}">
+      {# appearance attributes TEXT_ALIGN_CENTER TEXT_ALIGN_RIGHT #}
+      <div data-bind="css: {
+          'row': help(),
+          'text-center': stylesContains('text-align-center'),
+          'text-right': stylesContains('text-align-right'),
+        }">
         <span class="webapp-markdown-output" tabindex="0"
               data-bind="
                 html: ko.utils.unwrapObservable($data.caption_markdown) || caption(),
@@ -239,11 +255,6 @@
       <!-- /ko -->
     </label>
     <div class="widget-container controls" data-bind="css: controlWidth">
-      <div class="loading">
-        <i class="fa fa-check text-success" data-bind="visible: clean "></i>
-        <i class="fa fa-spin fa-refresh" data-bind="visible: dirty"></i>
-        <i class="fa fa-warning text-danger clickable" data-bind="visible: hasError, click: triggerAnswer"></i>
-      </div>
       <div class="widget" data-bind="
                 template: { name: entryTemplate, data: entry, afterRender: afterRender },
                 css: { 'has-error': hasError }
@@ -272,8 +283,12 @@
                     }">{% trans 'Sorry, this response is required!' %}</div>
   <!-- /ko -->
   <!-- ko if: datatype() === 'info' -->
-  <div class="info panel panel-default">
-    <div class="panel-body">
+  <div class="form-group">
+    {# appearance attributes TEXT_ALIGN_CENTER TEXT_ALIGN_RIGHT #}
+    <div class="info col-sm-12" data-bind="css: {
+        'text-center': stylesContains('text-align-center'),
+        'text-right': stylesContains('text-align-right'),
+      }">
       <span class="ix" data-bind="text: ixInfo($data)">></span>
       <span class="caption webapp-markdown-output"
             data-bind="
@@ -286,20 +301,24 @@
       >
       </div>
       <div class="widget-container controls" data-bind="css: controlWidth">
-      <!-- labels only deal with server errors, since there's no data type validation for the browser to do-->
-      <div class="text-danger error-message" data-bind="
-                visible: serverError,
-                text: serverError
-      "></div>
-    </div>
+        <!-- labels only deal with server errors, since there's no data type validation for the browser to do-->
+        <div class="text-danger error-message" data-bind="
+          visible: serverError,
+          text: serverError
+          "></div>
+      </div>
     </div>
   </div>
   <!-- /ko -->
+  </div>
 </script>
 
 <script type="text/html" id="repeat-juncture-fullform-ko-template">
   <div class="panel panel-default rep">
-    <div class="panel-heading">
+    <div class="panel-heading" data-bind="style: {
+        'background-color': headerBackgroundColor(),
+        'color': headerBackgroundColor() ? 'white' : '',
+      }">
       <h3 class="caption" data-bind="html: header" tabindex="0"></h3>
       <span class="ix" data-bind="text: ixInfo($data)"></span>
     </div>
@@ -350,9 +369,6 @@
 </script>
 
 <script type="text/html" id="text-entry-ko-template">
-  <span class="help-block type sr-only" data-bind="
-        text: helpText()
-    "></span>
   <textarea class="textfield form-control vertical-resize" data-bind="
         value: $data.rawAnswer,
         valueUpdate: valueUpdate,
@@ -362,13 +378,9 @@
             'aria-required': $parent.required() ? 'true' : 'false',
         },
     "></textarea>
-  <span class="help-block type" aria-hidden="true" data-bind="
-        text: helpText()
-    "></span>
 </script>
 
 <script type="text/html" id="password-entry-ko-template">
-  <span class="help-block type sr-only" data-bind="text: helpText()"></span>
   <input type="password" class="form-control" data-bind="
         value: $data.rawAnswer,
         valueUpdate: valueUpdate,
@@ -377,13 +389,9 @@
           'aria-required': $parent.required() ? 'true' : 'false',
         },
     "/>
-  <span class="help-block type" aria-hidden="true" data-bind="text: helpText()"></span>
 </script>
 
 <script type="text/html" id="str-entry-ko-template">
-  <span class="help-block type sr-only" data-bind="
-        text: helpText()
-    "></span>
   <input autocomplete="off" type="text" class="form-control" data-bind="
         value: $data.rawAnswer,
         valueUpdate: valueUpdate,
@@ -394,9 +402,6 @@
             'aria-required': $parent.required() ? 'true' : 'false',
         }
     "/>
-  <span class="help-block type" aria-hidden="true" data-bind="
-        text: helpText()
-    "></span>
 </script>
 <script type="text/html" id="unsupported-entry-ko-template">
   <div class="unsupported alert alert-warning">
@@ -425,7 +430,6 @@
 </script>
 
 <script type="text/html" id="file-entry-ko-template">
-  <span class="help-block type sr-only" data-bind="text: helpText()"></span>
   <input type="file" data-bind="
         value: $data.rawAnswer,
         attr: {
@@ -434,7 +438,32 @@
             accept: accept,
         },
     "/>
-  <span class="help-block type" aria-hidden="true" data-bind="text: helpText()"></span>
+  <button class="btn btn-default btn-xs pull-right" data-bind="click: onClear">
+    {% trans "Clear" %}
+  </button>
+</script>
+
+<script type="text/html" id="signature-entry-ko-template">
+  <div data-bind="attr: { id: entryId + '-wrapper' }">
+    <canvas data-bind="
+        attr: {
+            id: entryId + '-canvas',
+            'aria-required': $parent.required() ? 'true' : 'false',
+        },
+      "
+      style="border: 1px solid #ccc; border-radius: 4px;"/>
+    </canvas>
+  </div>
+  <button class="btn btn-default btn-xs pull-right" data-bind="click: onClear">
+    {% trans "Clear" %}
+  </button>
+  <input type="file" class="hidden" data-bind="
+      value: $data.rawAnswer,
+      attr: {
+          id: entryId,
+          accept: accept,
+      },
+    "/>
 </script>
 
 <script type="text/html" id="address-entry-ko-template">
@@ -502,10 +531,6 @@
   </fieldset>
 </script>
 <script type="text/html" id="dropdown-entry-ko-template">
-  <span class="help-block type sr-only" data-bind="
-        text: helpText(),
-        visible: helpText(),
-    "></span>
   <select class="form-control" data-bind="
         foreach: options,
         value: rawAnswer,
@@ -517,16 +542,8 @@
         ">
     <option data-bind="value: id, text: text"></option>
   </select>
-  <span class="help-block type" aria-hidden="true" data-bind="
-        text: helpText(),
-        visible: helpText(),
-    "></span>
 </script>
 <script type="text/html" id="multidropdown-entry-ko-template">
-  <span class="help-block type sr-only" data-bind="
-        text: helpText(),
-        visible: helpText(),
-    "></span>
   <select multiple class="form-control" data-bind="
         options: choices,
         selectedOptions: rawAnswer,
@@ -537,10 +554,6 @@
         valueAllowUnset: true,
         ">
   </select>
-  <span class="help-block type" aria-hidden="true" data-bind="
-        text: helpText(),
-        visible: helpText(),
-    "></span>
 </script>
 <script type="text/html" id="choice-label-entry-ko-template">
   <div class="row">
@@ -586,12 +599,10 @@
 </script>
 
 <script type="text/html" id="time-entry-ko-template">
-  <span class="help-block sr-only" data-bind="text: helpText()"></span>
   <div class="input-group">
     <input type="text" class="form-control" data-bind="attr: { id: entryId, 'aria-required': $parent.required() ? 'true' : 'false' }"/>
     <span class="input-group-addon"><i class="fa fa-clock-o"></i></span>
   </div>
-  <span class="help-block" aria-hidden="true" data-bind="text: helpText()"></span>
 </script>
 
 <script type="text/html" id="ethiopian-date-entry-ko-template">

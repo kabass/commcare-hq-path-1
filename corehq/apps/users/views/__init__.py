@@ -52,7 +52,6 @@ from corehq.apps.analytics.tasks import (
 )
 from corehq.apps.app_manager.dbaccessors import get_app_languages
 from corehq.apps.cloudcare.esaccessors import login_as_user_filter
-from corehq.apps.custom_data_fields.models import PROFILE_SLUG
 from corehq.apps.domain.decorators import (
     domain_admin_required,
     login_and_domain_required,
@@ -352,7 +351,6 @@ class BaseEditUserView(BaseUserSettingsView):
                 'exception_type': type(e),
             })
 
-
     def post(self, request, *args, **kwargs):
         saved = False
         if self.request.POST['form_type'] == "commtrack":
@@ -551,7 +549,6 @@ class ListWebUsersView(BaseRoleAccessView):
     page_title = gettext_lazy("Web Users")
     urlname = 'web_users'
 
-
     @property
     @memoized
     def role_labels(self):
@@ -626,7 +623,7 @@ class DownloadWebUsersStatusView(BaseUserSettingsView):
             'next_url': reverse(ListWebUsersView.urlname, args=[self.domain]),
             'next_url_text': _("Go back to Web Users"),
         })
-        return render(request, 'hqwebapp/soil_status_full.html', context)
+        return render(request, 'hqwebapp/bootstrap3/soil_status_full.html', context)
 
     def page_url(self):
         return reverse(self.urlname, args=self.args, kwargs=self.kwargs)
@@ -791,7 +788,7 @@ def paginate_enterprise_users(request, domain):
             'inactiveMobileCount': len(mobile_users[web_user.username]) - loginAsUserCount,
         })
         for mobile_user in sorted(mobile_users[web_user.username], key=lambda x: x.username):
-            profile = mobile_user.get_user_data_profile(mobile_user.metadata.get(PROFILE_SLUG))
+            profile = mobile_user.get_user_data(domain).profile
             users.append({
                 **_format_enterprise_user(mobile_user.domain, mobile_user),
                 'profile': profile.name if profile else None,
@@ -1275,7 +1272,7 @@ class WebUserUploadStatusView(BaseManageWebUserView):
             'next_url': reverse(ListWebUsersView.urlname, args=[self.domain]),
             'next_url_text': _("Return to manage web users"),
         })
-        return render(request, 'hqwebapp/soil_status_full.html', context)
+        return render(request, 'hqwebapp/bootstrap3/soil_status_full.html', context)
 
     def page_url(self):
         return reverse(self.urlname, args=self.args, kwargs=self.kwargs)

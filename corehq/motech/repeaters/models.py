@@ -114,9 +114,9 @@ from corehq.motech.repeaters.apps import REPEATER_CLASS_MAP
 from corehq.motech.repeaters.optionvalue import OptionValue
 from corehq.motech.requests import simple_request
 from corehq.privileges import DATA_FORWARDING, ZAPIER_INTEGRATION
+from corehq.sql_db.fields import CharIdField
 from corehq.util.metrics import metrics_counter
 from corehq.util.models import ForeignObject, foreign_init
-from corehq.util.quickcache import quickcache
 from corehq.util.urlvalidate.ip_resolver import CannotResolveHost
 from corehq.util.urlvalidate.urlvalidate import PossibleSSRFAttempt
 
@@ -189,6 +189,8 @@ class RepeaterSuperProxy(models.Model):
         # If repeater_id is not set then set one
         if not self.repeater_id:
             self.repeater_id = uuid.uuid4().hex
+        if self.id is None:
+            self.id = uuid.UUID(self.repeater_id)
         self.name = self.name or self.connection_settings.name
         return super().save(*args, **kwargs)
 
@@ -252,7 +254,8 @@ class RepeaterManager(models.Manager):
 
 @foreign_init
 class Repeater(RepeaterSuperProxy):
-    domain = models.CharField(max_length=126, db_index=True)
+    id = models.UUIDField(primary_key=True, db_column="id_")
+    domain = CharIdField(max_length=126, db_index=True)
     repeater_id = models.CharField(max_length=36, unique=True)
     name = models.CharField(max_length=255, null=True)
     format = models.CharField(max_length=64, null=True)
@@ -425,7 +428,6 @@ class Repeater(RepeaterSuperProxy):
         self.save()
 
     def retire(self):
-        self.is_paused = False
         self.is_deleted = True
         self.save()
 
@@ -936,7 +938,7 @@ class RepeatRecord(Document):
 
     def is_repeater_deleted(self):
         try:
-            return Repeater.all_objects.get(repeater_id=self.repeater_id).is_deleted
+            return Repeater.all_objects.values_list("is_deleted", flat=True).get(repeater_id=self.repeater_id)
         except Repeater.DoesNotExist:
             return True
 
@@ -958,6 +960,11 @@ class RepeatRecord(Document):
         elif self.failure_reason:
             state = RECORD_FAILURE_STATE
         return state
+
+    @property
+    def exceeded_max_retries(self):
+        return (self.state == RECORD_FAILURE_STATE and self.overall_tries
+                >= self.max_possible_tries)
 
     @classmethod
     def all(cls, domain=None, due_before=None, limit=None):
@@ -1164,12 +1171,19 @@ class RepeatRecord(Document):
         self.next_check = datetime.utcnow()
 
 
+# on_delete=DB_CASCADE denotes ON DELETE CASCADE in the database. The
+# constraints are configured in a migration. Note that Django signals
+# will not fire on records deleted via cascade.
+DB_CASCADE = models.DO_NOTHING
+
+
 class SQLRepeatRecord(models.Model):
     domain = models.CharField(max_length=126)
     couch_id = models.CharField(max_length=36, null=True, blank=True)
     payload_id = models.CharField(max_length=36)
     repeater = models.ForeignKey(Repeater,
-                                 on_delete=models.CASCADE,
+                                 on_delete=DB_CASCADE,
+                                 db_column="repeater_id_",
                                  related_name='repeat_records')
     state = models.TextField(choices=RECORD_STATES,
                              default=RECORD_PENDING_STATE)
@@ -1301,8 +1315,7 @@ class SQLRepeatRecord(models.Model):
 
 
 class SQLRepeatRecordAttempt(models.Model):
-    repeat_record = models.ForeignKey(SQLRepeatRecord,
-                                      on_delete=models.CASCADE)
+    repeat_record = models.ForeignKey(SQLRepeatRecord, on_delete=DB_CASCADE)
     state = models.TextField(choices=RECORD_STATES)
     message = models.TextField(blank=True, default='')
     traceback = models.TextField(blank=True, default='')
@@ -1339,7 +1352,7 @@ def attempt_forward_now(repeater: Repeater):
         return
     if not repeater.is_ready:
         return
-    process_repeater.delay(repeater.id)
+    process_repeater.delay(repeater.id.hex)
 
 
 def get_payload(repeater: Repeater, repeat_record: SQLRepeatRecord) -> str:
@@ -1446,15 +1459,8 @@ def is_response(duck):
     return hasattr(duck, 'status_code') and hasattr(duck, 'reason')
 
 
-@quickcache(['domain'], timeout=5 * 60)
 def are_repeat_records_migrated(domain) -> bool:
-    """
-    Returns True if ``domain`` has SQLRepeatRecords.
-
-    .. note:: Succeeded and cancelled RepeatRecords may not have been
-              migrated to SQLRepeatRecords.
-    """
-    return SQLRepeatRecord.objects.filter(domain=domain).exists()
+    return False
 
 
 def domain_can_forward(domain):

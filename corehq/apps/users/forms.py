@@ -30,10 +30,7 @@ from corehq.apps.accounting.utils import domain_has_privilege
 from corehq.apps.analytics.tasks import set_analytics_opt_out
 from corehq.apps.app_manager.models import validate_lang
 from corehq.apps.custom_data_fields.edit_entity import CustomDataEditor
-from corehq.apps.custom_data_fields.models import (
-    PROFILE_SLUG,
-    CustomDataFieldsProfile,
-)
+from corehq.apps.custom_data_fields.models import CustomDataFieldsProfile, PROFILE_SLUG
 from corehq.apps.domain.extension_points import has_custom_clean_password
 from corehq.apps.domain.forms import EditBillingAccountInfoForm, clean_password
 from corehq.apps.domain.models import Domain
@@ -51,7 +48,9 @@ from corehq.apps.programs.models import Program
 from corehq.apps.reports.filters.users import ExpandedMobileWorkerFilter
 from corehq.apps.reports.models import TableauUser
 from corehq.apps.reports.util import (
+    TableauGroupTuple,
     get_all_tableau_groups,
+    get_allowed_tableau_groups_for_domain,
     get_tableau_groups_for_user,
     update_tableau_user,
 )
@@ -60,13 +59,16 @@ from corehq.apps.sso.utils.request_helpers import is_request_using_sso
 from corehq.apps.user_importer.helpers import UserChangeLogger
 from corehq.const import LOADTEST_HARD_LIMIT, USER_CHANGE_VIA_WEB
 from corehq.pillows.utils import MOBILE_USER_TYPE, WEB_USER_TYPE
-from corehq.toggles import TWO_STAGE_USER_PROVISIONING, TWO_STAGE_USER_PROVISIONING_BY_SMS
+from corehq.toggles import (
+    TWO_STAGE_USER_PROVISIONING,
+    TWO_STAGE_USER_PROVISIONING_BY_SMS,
+)
 
+from ..hqwebapp.signals import clear_login_attempts
 from .audit.change_messages import UserChangeMessage
 from .dbaccessors import user_exists
-from .models import DeactivateMobileWorkerTrigger, UserRole, CouchUser
+from .models import CouchUser, DeactivateMobileWorkerTrigger, UserRole
 from .util import cc_user_domain, format_username, log_user_change
-from ..hqwebapp.signals import clear_login_attempts
 
 UNALLOWED_MOBILE_WORKER_NAMES = ('admin', 'demo_user')
 STRONG_PASSWORD_LEN = 12
@@ -263,11 +265,12 @@ class UpdateUserRoleForm(BaseUpdateUserForm):
 
         if is_update_successful and (props_updated or role_updated or metadata_updated):
             change_messages = {}
-            profile_id = self.existing_user.user_data.get(PROFILE_SLUG)
+            user_data = self.existing_user.get_user_data(self.domain)
+            profile_id = user_data.profile_id
             if role_updated:
                 change_messages.update(UserChangeMessage.role_change(user_new_role))
             if metadata_updated:
-                props_updated['user_data'] = self.existing_user.user_data
+                props_updated['user_data'] = user_data.raw
             if profile_updated:
                 profile_name = None
                 if profile_id:
@@ -1559,7 +1562,7 @@ class CommCareUserFormSet(object):
         return CustomDataEditor(
             domain=self.domain,
             field_view=UserFieldsView,
-            existing_custom_data=self.editable_user.metadata,
+            existing_custom_data=self.editable_user.get_user_data(self.domain).to_dict(),
             post_dict=self.data,
             ko_model="custom_fields",
         )
@@ -1569,9 +1572,15 @@ class CommCareUserFormSet(object):
                 and all([self.user_form.is_valid(), self.custom_data.is_valid()]))
 
     def update_user(self):
-        metadata_updated, profile_updated = self.user_form.existing_user.update_metadata(
-            self.custom_data.get_data_to_save())
-        return self.user_form.update_user(metadata_updated=metadata_updated, profile_updated=profile_updated)
+        user_data = self.user_form.existing_user.get_user_data(self.domain)
+        old_profile_id = user_data.profile_id
+        new_user_data = self.custom_data.get_data_to_save()
+        new_profile_id = new_user_data.pop(PROFILE_SLUG, ...)
+        changed = user_data.update(new_user_data, new_profile_id)
+        return self.user_form.update_user(
+            metadata_updated=changed,
+            profile_updated=old_profile_id != new_profile_id
+        )
 
 
 class UserFilterForm(forms.Form):
@@ -1786,15 +1795,21 @@ class TableauUserForm(forms.Form):
         self.domain = kwargs.pop('domain', None)
         self.username = kwargs.pop('username', None)
         super(TableauUserForm, self).__init__(*args, **kwargs)
-        self.all_tableau_groups = get_all_tableau_groups(self.domain)
+
+        self.allowed_tableau_groups = [
+            TableauGroupTuple(group.name, group.id) for group in get_all_tableau_groups(self.domain)
+            if group.name in get_allowed_tableau_groups_for_domain(self.domain)]
         user_group_names = [group.name for group in get_tableau_groups_for_user(self.domain, self.username)]
+        self.fields['groups'].choices = []
         self.fields['groups'].initial = []
-        for i, group in enumerate(self.all_tableau_groups):
+        for i, group in enumerate(self.allowed_tableau_groups):
             # Add a choice for each tableau group on the server
             self.fields['groups'].choices.append((i, group.name))
             if group.name in user_group_names:
                 # Pre-choose groups that the user already belongs to
                 self.fields['groups'].initial.append(i)
+        if not self.fields['groups'].choices:
+            del self.fields['groups']
 
         self.helper = FormHelper()
 
@@ -1806,5 +1821,5 @@ class TableauUserForm(forms.Form):
         self.helper.field_class = 'col-sm-9 col-md-8 col-lg-6'
 
     def save(self, username, commit=True):
-        groups = [self.all_tableau_groups[int(i)] for i in self.cleaned_data['groups']]
+        groups = [self.allowed_tableau_groups[int(i)] for i in self.cleaned_data['groups']]
         update_tableau_user(self.domain, username, self.cleaned_data['role'], groups)
