@@ -1,3 +1,4 @@
+"use strict";
 hqDefine('hqwebapp/js/multiselect_utils', [
     "jquery",
     "knockout",
@@ -11,7 +12,7 @@ hqDefine('hqwebapp/js/multiselect_utils', [
     _,
     assertProperties
 ) {
-    var multiselect_utils = {};
+    var self = {};
 
     var _renderHeader = function (title, action, search) {
         // Since action and search are created from _renderAction() and _renderSearch()
@@ -26,7 +27,7 @@ hqDefine('hqwebapp/js/multiselect_utils', [
 
     var _renderAction = function (buttonId, buttonClass, buttonIcon, text, disabled = false) {
         var action = _.template(
-            '<button class="btn <%-actionButtonClass %> btn-xs pull-right" id="<%- actionButtonId %>" <% if (actionDisabled) { %> disabled <% } %>>' +
+            '<button class="btn <%-actionButtonClass %> btn-xs <%- floatClass %>" id="<%- actionButtonId %>" <% if (actionDisabled) { %> disabled <% } %>>' +
                 '<i class="<%- actionButtonIcon %>"></i> <%- actionButtonText %>' +
             '</button>'
         );
@@ -36,18 +37,20 @@ hqDefine('hqwebapp/js/multiselect_utils', [
             actionButtonIcon: buttonIcon,
             actionButtonText: text,
             actionDisabled: disabled,
+            floatClass: window.USE_BOOTSTRAP5 ? "float-end" : "pull-right",
         });
     };
 
     var _renderSearch = function (inputId, placeholder) {
-        var input = _.template(
-            '<div class="input-group ms-input-group">' +
-                '<span class="input-group-addon">' +
-                    '<i class="fa fa-search"></i>' +
-                '</span>' +
-                '<input type="search" class="form-control search-input" id="<%- searchInputId %>" autocomplete="off" placeholder="<%- searchInputPlaceholder %>" />' +
-            '</div>'
-        );
+        var inputGroupTextClass = (window.USE_BOOTSTRAP5) ? "input-group-text" : "input-group-addon",
+            input = _.template(
+                '<div class="input-group ms-input-group">' +
+                    '<span class="' + inputGroupTextClass + '">' +
+                        '<i class="fa fa-search"></i>' +
+                    '</span>' +
+                    '<input type="search" class="form-control search-input" id="<%- searchInputId %>" autocomplete="off" placeholder="<%- searchInputPlaceholder %>" />' +
+                '</div>'
+            );
         return input({
             searchInputId: inputId,
             searchInputPlaceholder: placeholder,
@@ -63,7 +66,7 @@ hqDefine('hqwebapp/js/multiselect_utils', [
      * willSelectAllListener - Function to call before the multiselect processes the Add All action.
      * disableModifyAllActions - Boolean value to enable/disable Add All and Remove All buttons. Defaults to false.
      */
-    multiselect_utils.createFullMultiselectWidget = function (elementOrId, properties) {
+    self.createFullMultiselectWidget = function (elementOrId, properties) {
         assertProperties.assert(properties, [], ['selectableHeaderTitle', 'selectedHeaderTitle', 'searchItemTitle', 'willSelectAllListener', 'disableModifyAllActions']);
         var selectableHeaderTitle = properties.selectableHeaderTitle || gettext("Items");
         var selectedHeaderTitle = properties.selectedHeaderTitle || gettext("Selected items");
@@ -76,17 +79,18 @@ hqDefine('hqwebapp/js/multiselect_utils', [
             selectAllId = baseId + '-select-all',
             removeAllId = baseId + '-remove-all',
             searchSelectableId = baseId + '-search-selectable',
-            searchSelectedId = baseId + '-search-selected';
+            searchSelectedId = baseId + '-search-selected',
+            defaultBtnClass = (window.USE_BOOTSTRAP5) ? 'btn-outline-primary btn-sm' : 'btn-default';
 
         $element.multiSelect({
             selectableHeader: _renderHeader(
                 selectableHeaderTitle,
-                _renderAction(selectAllId, 'btn-default', 'fa fa-plus', gettext("Add All"), disableModifyAllActions),
+                _renderAction(selectAllId, defaultBtnClass, 'fa fa-plus', gettext("Add All"), disableModifyAllActions),
                 _renderSearch(searchSelectableId, searchItemTitle)
             ),
             selectionHeader: _renderHeader(
                 selectedHeaderTitle,
-                _renderAction(removeAllId, 'btn-default', 'fa fa-remove', gettext("Remove All"), disableModifyAllActions),
+                _renderAction(removeAllId, defaultBtnClass, 'fa fa-remove', gettext("Remove All"), disableModifyAllActions),
                 _renderSearch(searchSelectedId, searchItemTitle)
             ),
             afterInit: function () {
@@ -163,11 +167,11 @@ hqDefine('hqwebapp/js/multiselect_utils', [
         });
     };
 
-    multiselect_utils.rebuildMultiselect = function (elementOrId, multiselectProperties) {
+    self.rebuildMultiselect = function (elementOrId, multiselectProperties) {
         var $element = _.isString(elementOrId) ? $('#' + elementOrId) : $(elementOrId);
         // multiSelect('refresh') breaks existing click handlers, so the alternative is to destroy and rebuild
         $element.multiSelect('destroy');
-        multiselect_utils.createFullMultiselectWidget(elementOrId, multiselectProperties);
+        self.createFullMultiselectWidget(elementOrId, multiselectProperties);
     };
 
     /*
@@ -182,7 +186,7 @@ hqDefine('hqwebapp/js/multiselect_utils', [
         init: function (element, valueAccessor) {
             var model = valueAccessor();
             assertProperties.assert(model, [], ['properties', 'options', 'didUpdateListener']);
-            multiselect_utils.createFullMultiselectWidget(element, model.properties);
+            self.createFullMultiselectWidget(element, model.properties);
 
             if (model.options) {
                 // apply bindings after the multiselect has been setup
@@ -197,12 +201,12 @@ hqDefine('hqwebapp/js/multiselect_utils', [
                 ko.unwrap(model.options());
             }
 
-            multiselect_utils.rebuildMultiselect(element, model.properties);
+            self.rebuildMultiselect(element, model.properties);
             if (model.didUpdateListener) {
                 model.didUpdateListener();
             }
         },
     };
 
-    return multiselect_utils;
+    return self;
 });

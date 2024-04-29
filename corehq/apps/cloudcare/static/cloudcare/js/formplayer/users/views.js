@@ -1,11 +1,25 @@
-/*global Backbone, Marionette */
-
-hqDefine("cloudcare/js/formplayer/users/views", function () {
-    var FormplayerFrontend = hqImport("cloudcare/js/formplayer/app"),
-        formplayerUtils = hqImport("cloudcare/js/formplayer/utils/utils"),
-        Toggles = hqImport("hqwebapp/js/toggles"),
-        usersUtils = hqImport("cloudcare/js/formplayer/users/utils");
-
+'use strict';
+hqDefine("cloudcare/js/formplayer/users/views", [
+    'jquery',
+    'underscore',
+    'backbone',
+    'backbone.marionette',
+    'hqwebapp/js/toggles',
+    'cloudcare/js/formplayer/app',
+    'cloudcare/js/formplayer/utils/utils',
+    'cloudcare/js/formplayer/users/models',
+    'cloudcare/js/formplayer/users/utils',
+], function (
+    $,
+    _,
+    Backbone,
+    Marionette,
+    toggles,
+    FormplayerFrontend,
+    formplayerUtils,
+    usersModels,
+    usersUtils
+) {
     /**
      * RestoreAsBanner
      *
@@ -23,7 +37,7 @@ hqDefine("cloudcare/js/formplayer/users/views", function () {
         },
         templateContext: function () {
             var template = "";
-            if (Toggles.toggleEnabled('WEB_APPS_DOMAIN_BANNER')) {
+            if (toggles.toggleEnabled('WEB_APPS_DOMAIN_BANNER')) {
                 template = gettext("Working as <b><%- restoreAs %></b> in <b><%- domain %></b>.");
             } else {
                 template = gettext("Working as <b><%- restoreAs %></b>.");
@@ -33,7 +47,7 @@ hqDefine("cloudcare/js/formplayer/users/views", function () {
             var message = _.template(template)({
                 restoreAs: this.model.restoreAs,
                 username: this.model.getDisplayUsername(),
-                domain: FormplayerFrontend.getChannel().request('currentUser').domain,
+                domain: usersModels.getCurrentUser().domain,
             });
             return {
                 message: message,
@@ -67,7 +81,7 @@ hqDefine("cloudcare/js/formplayer/users/views", function () {
         },
         onClickUser: function () {
             formplayerUtils.confirmationModal({
-                title: _.template(gettext('Log in as <%= username %>?'))({username: this.model.get('username')}),
+                title: _.template(gettext('Log in as <%- username %>?'))({username: this.model.get('username')}),
                 message: _.template($('#user-data-template').html())(
                     { user: this.model.toJSON() }
                 ),
@@ -76,7 +90,7 @@ hqDefine("cloudcare/js/formplayer/users/views", function () {
                     usersUtils.Users.logInAsUser(this.model.get('username'));
                     FormplayerFrontend.regions.getRegion('restoreAsBanner').show(
                         new RestoreAsBanner({
-                            model: FormplayerFrontend.getChannel().request('currentUser'),
+                            model: usersModels.getCurrentUser(),
                         })
                     );
                     var loginAsNextOptions = FormplayerFrontend.getChannel().request('getLoginAsNextOptions');
@@ -139,21 +153,20 @@ hqDefine("cloudcare/js/formplayer/users/views", function () {
             'keypress @ui.paginationGoTextBox': 'paginationGoKeyAction',
         },
         templateContext: function () {
-            var paginationOptions = formplayerUtils.paginateOptions(this.model.get('page') - 1, this.totalPages());
-            return {
+            var paginationOptions = formplayerUtils.paginateOptions(
+                this.model.get('page') - 1,
+                this.totalPages(),
+                this.collection.total
+            );
+            return _.extend(paginationOptions, {
                 total: this.collection.total,
                 totalPages: this.totalPages(),
                 limit: this.limit,
-                rowRange: [10, 25, 50, 100],
-                startPage: paginationOptions.startPage,
-                endPage: paginationOptions.endPage,
-                pageCount: paginationOptions.pageCount,
                 currentPage: this.model.get('page') - 1,
-                pageNumLabel: _.template(gettext("Page <%- num %>")),
-            };
+            });
         },
         navigate: function () {
-            FormplayerFrontend.navigate(
+            formplayerUtils.navigate(
                 '/restore_as/' +
                 this.model.get('page') + '/' +
                 this.model.get('query')

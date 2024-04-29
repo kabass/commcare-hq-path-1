@@ -15,7 +15,7 @@ from corehq.apps.registry.tests.utils import create_registry_for_test, Invitatio
 from corehq.apps.users.models import CommCareUser
 from corehq.motech.models import ConnectionSettings
 from corehq.motech.repeaters.dbaccessors import delete_all_repeat_records
-from corehq.motech.repeaters.models import RepeatRecord, DataRegistryCaseUpdateRepeater
+from corehq.motech.repeaters.models import DataRegistryCaseUpdateRepeater, SQLRepeatRecord
 from corehq.motech.repeaters.repeater_generators import DataRegistryCaseUpdatePayloadGenerator
 from corehq.motech.repeaters.tests.test_data_registry_case_update_payload_generator import IntentCaseBuilder, \
     DataRegistryUpdateForm
@@ -47,7 +47,6 @@ class DataRegistryCaseUpdateRepeaterTest(TestCase, TestXmlMixin, DomainSubscript
             domain=cls.domain,
             connection_settings_id=cls.connx.id,
             white_listed_case_types=[IntentCaseBuilder.CASE_TYPE],
-            repeater_id=uuid.uuid4().hex
         )
         cls.repeater.save()
 
@@ -152,4 +151,4 @@ class DataRegistryCaseUpdateRepeaterTest(TestCase, TestXmlMixin, DomainSubscript
     def repeat_records(cls, domain_name):
         # Enqueued repeat records have next_check set 48 hours in the future.
         later = datetime.utcnow() + timedelta(hours=48 + 1)
-        return RepeatRecord.all(domain=domain_name, due_before=later)
+        return SQLRepeatRecord.objects.filter(domain=domain_name, next_check__lt=later)

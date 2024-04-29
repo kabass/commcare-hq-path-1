@@ -1,16 +1,35 @@
-/* global DOMPurify */
-hqDefine("cloudcare/js/form_entry/form_ui", function () {
-    var markdown = hqImport("cloudcare/js/markdown"),
-        constants = hqImport("cloudcare/js/form_entry/const"),
-        entries = hqImport("cloudcare/js/form_entry/entries"),
-        formEntryUtils = hqImport("cloudcare/js/form_entry/utils");
+'use strict';
+hqDefine("cloudcare/js/form_entry/form_ui", [
+    'jquery',
+    'knockout',
+    'underscore',
+    'DOMPurify/dist/purify.min',
+    'hqwebapp/js/toggles',
+    'cloudcare/js/markdown',
+    'cloudcare/js/utils',
+    'cloudcare/js/form_entry/const',
+    'cloudcare/js/form_entry/entries',
+    'cloudcare/js/form_entry/utils',
+    'jquery-tiny-pubsub/dist/ba-tiny-pubsub',       // $.pubsub
+], function (
+    $,
+    ko,
+    _,
+    DOMPurify,
+    toggles,
+    markdown,
+    cloudcareUtils,
+    constants,
+    entries,
+    formEntryUtils
+) {
     var groupNum = 0;
 
     _.delay(function () {
         ko.bindingHandlers.renderMarkdown = {
             update: function (element, valueAccessor) {
                 var value = ko.unwrap(valueAccessor());
-                value = markdown.render(value || '');
+                value = markdown.render(value);
                 $(element).html(value);
             },
         };
@@ -95,6 +114,15 @@ hqDefine("cloudcare/js/form_entry/form_ui", function () {
         return matchingStyles;
     }
 
+    function stylesContaining(pattern, style) {
+        var styleStr = (style) ? ko.utils.unwrapObservable(style.raw) : null;
+        return getMatchingStyles(pattern, styleStr);
+    }
+
+    function stylesContains(pattern, style) {
+        return stylesContaining(pattern, style).length > 0;
+    }
+
     function parseMeta(type, style) {
         var meta = {};
 
@@ -137,8 +165,36 @@ hqDefine("cloudcare/js/form_entry/form_ui", function () {
         return curr;
     }
 
+    function getNPerRowStyleFromRepeatStyle(styleStr) {
+        const matchingPerRowRepeatStyles = getMatchingStyles(constants.PER_ROW_REPEAT_PATTERN, styleStr),
+            perRowRepeatStyle = matchingPerRowRepeatStyles.length ? matchingPerRowRepeatStyles[0] : null;
+        if (perRowRepeatStyle) {
+            const integerPart = perRowRepeatStyle.split('-')[0];
+            return integerPart + constants.PER_ROW;
+        } else {
+            return '';
+        }
+    }
+
+    function processNPerRowRepeatStyle(json) {
+        if (stylesContains(constants.PER_ROW_REPEAT_PATTERN, json.style)) {
+            const elementNPerRowStyle = getNPerRowStyleFromRepeatStyle(json.style.raw);
+            for (let groupChild of json.children) {
+                // Detects configured repeat groups within the form. If a repeat group has a 'repeat-count' configured,
+                // the Formplayer response designates the key 'type' as 'sub-group' and 'repeatable' as 'true'.
+                if ((groupChild.type === constants.GROUP_TYPE && groupChild.repeatable === "true") || groupChild.type === constants.REPEAT_TYPE) {
+                    if (_.has(groupChild, 'style') && groupChild.style && groupChild.style.raw) {
+                        groupChild.style.raw = groupChild.style.raw.concat(" ", elementNPerRowStyle);
+                    } else {
+                        groupChild.style = {'raw': elementNPerRowStyle};
+                    }
+                }
+            }
+        }
+    }
+
     /**
-     * Base abstract prototype for Repeat, Group, GroupedQuestionTileRow, and Form. Adds methods to
+     * Base abstract prototype for Repeat, Group, GroupedElementTileRow, and Form. Adds methods to
      * objects that contain a children array for rendering nested questions.
      * @param {Object} json - The JSON returned from touchforms to represent the container
      */
@@ -171,7 +227,7 @@ hqDefine("cloudcare/js/form_entry/form_ui", function () {
         var self = this;
 
         if (!json.type) {
-            Container.groupQuestions(json);
+            Container.groupElements(json);
         }
 
         var mapping = {
@@ -190,8 +246,8 @@ hqDefine("cloudcare/js/form_entry/form_ui", function () {
             },
             children: {
                 create: function (options) {
-                    if (options.data.type === constants.GROUPED_QUESTION_TILE_ROW_TYPE) {
-                        return new GroupedQuestionTileRow(options.data, self);
+                    if (options.data.type === constants.GROUPED_ELEMENT_TILE_ROW_TYPE) {
+                        return new GroupedElementTileRow(options.data, self);
                     } else if (options.data.type === constants.QUESTION_TYPE) {
                         return new Question(options.data, self);
                     } else if (options.data.type === constants.GROUP_TYPE) {
@@ -259,12 +315,11 @@ hqDefine("cloudcare/js/form_entry/form_ui", function () {
             currentNode = currentNode.parent;
         }
 
-        // Colors are ordered from lightest to darkest with the lightest color for the highest level.
-        // Colors are based on Bootstrap provided tint/shades of #5D70D2 (CommCare Cornflower Blue)
-        // tint(#5D70D2, 20%): #7d8ddb
-        // shade(#5D70D2, 20%): #4a5aa8
-        // shade(#5D70D2, 40%): #38437e
-        const repeatColor = ["#7d8ddb", "#4a5aa8", "#38437e"];
+        // Colors are ordered from darkest to lightest with the darkest color for the highest level.
+        // Colors are based on shades of @cc-brand-mid.
+        // shade(#004EBC, 20%) #003e96
+        // shade(#004EBC, 40%) #002f71
+        const repeatColor = ["#002f71", "#003e96", "#004EBC"];
         const repeatColorCount = repeatColor.length;
         const index = (nestedDepthCount - 1) % repeatColorCount;
 
@@ -272,17 +327,18 @@ hqDefine("cloudcare/js/form_entry/form_ui", function () {
     };
 
     /**
-     * Recursively groups sequential "question" items in a nested JSON structure.
+     * Recursively groups sequential "Question" or "Group" items in a nested JSON structure.
      *
-     * This function takes a JSON object as input and searches for sequential "question"
-     * items within the 'children' arrays of the input and its nested 'group' objects.
-     * It groups these sequential "question" items into "GroupedQuestionTileRow" objects while
-     * maintaining the original structure of the JSON.
+     * This function takes a JSON object as input and searches for sequential "Question" or "Group"
+     * items within the 'children' arrays of the input and its nested "Group" objects.
+     * It groups the sequential "Question" items and "Group"
+     * items into "GroupedElementTileRow" objects while maintaining the original structure of the JSON.
      *
      * @param {Object} json - The JSON object to process, containing 'children' arrays.
-     * @returns {Object} - A new JSON object with sequential "question" items grouped into "GroupedQuestionTileRow".
+     * @returns {Object} - A new JSON object with sequential "Question" items and sequential
+     * "Group" items grouped into "GroupedElementTileRow".
      */
-    Container.groupQuestions = function (json) {
+    Container.groupElements = function (json) {
         if (!json || !json.children || !Array.isArray(json.children)) {
             return json;
         }
@@ -294,7 +350,7 @@ hqDefine("cloudcare/js/form_entry/form_ui", function () {
         function addToCurrentGroup(child) {
             if (!currentGroup) {
                 currentGroup = {
-                    type: constants.GROUPED_QUESTION_TILE_ROW_TYPE,
+                    type: constants.GROUPED_ELEMENT_TILE_ROW_TYPE,
                     children: [],
                     ix: null,
                 };
@@ -312,19 +368,24 @@ hqDefine("cloudcare/js/form_entry/form_ui", function () {
             usedWidth = 0;
         }
 
+        if (json.type === constants.GROUP_TYPE) {
+            processNPerRowRepeatStyle(json);
+        }
+
         for (let child of json.children) {
-            if (child.type === constants.QUESTION_TYPE) {
-                const questionTileWidth = Question.calculateColumnWidthForPerRowStyle(child.style);
-                usedWidth += questionTileWidth;
+            if (child.type === constants.QUESTION_TYPE || child.type === constants.GROUP_TYPE || child.type === constants.REPEAT_TYPE) {
+                const elementTileWidth = GroupedElementTileRow.calculateElementWidth(child.style);
+                usedWidth += elementTileWidth;
                 if (usedWidth > constants.GRID_COLUMNS) {
                     resetCurrentGroup();
-                    usedWidth += questionTileWidth;
+                    usedWidth += elementTileWidth;
                 }
+
+                if (child.type === constants.GROUP_TYPE || child.type === constants.REPEAT_TYPE) {
+                    child = Container.groupElements(child);
+                }
+
                 addToCurrentGroup(child);
-            } else if (child.type === constants.GROUP_TYPE || child.type === constants.REPEAT_TYPE) {
-                const newGroup = Container.groupQuestions(child);
-                newChildren.push(newGroup);
-                resetCurrentGroup();
             } else {
                 newChildren.push(child);
                 resetCurrentGroup();
@@ -348,7 +409,9 @@ hqDefine("cloudcare/js/form_entry/form_ui", function () {
         self.blockSubmit = ko.observable(false);
         self.hasSubmitAttempted = ko.observable(false);
         self.isSubmitting = ko.observable(false);
-        self.submitClass = constants.LABEL_OFFSET + ' ' + constants.CONTROL_WIDTH;
+        self.isAnchoredSubmitStyle = toggles.toggleEnabled('WEB_APPS_ANCHORED_SUBMIT');
+        self.submitClass = constants.FULL_WIDTH + ' text-center' +
+          (self.isAnchoredSubmitStyle ? ' anchored-submit' : ' nonanchored-submit');
 
         self.currentIndex = ko.observable("0");
         self.atLastIndex = ko.observable(false);
@@ -456,11 +519,23 @@ hqDefine("cloudcare/js/form_entry/form_ui", function () {
             return !self.isSubmitting() && self.erroredQuestions().length === 0;
         });
 
+        self.getSubmitTranslation = function () {
+            var translations = self.translations;
+            if (translations) {
+                const result = Object.entries(translations).find(([k]) => k.includes("submit_label"));
+                if (result) {
+                    const key = result[0];
+                    return ko.toJS(translations[key]);
+                }
+            }
+            return gettext("Submit");
+        };
+
         self.submitText = ko.computed(function () {
             if (self.isSubmitting()) {
                 return gettext('Submitting...');
             }
-            return gettext('Submit');
+            return self.getSubmitTranslation();
         });
 
         self.forceRequiredVisible = ko.observable(false);
@@ -486,6 +561,11 @@ hqDefine("cloudcare/js/form_entry/form_ui", function () {
         });
 
         self.submitForm = function () {
+            $(document).onvisibilitychange = () => {
+                if (document.visibilityState === "hidden") {
+                    self.showSubmitButton = false;
+                }
+            };
             self.hasSubmitAttempted(true);
             $.publish('formplayer.' + constants.SUBMIT, self);
         };
@@ -502,6 +582,19 @@ hqDefine("cloudcare/js/form_entry/form_ui", function () {
                 callback: _updateIndexCallback,
                 title: self.title(),
             });
+        };
+
+        self.getTranslation = function (translationKey, defaultTranslation) {
+            // Find the root level element which contains the translations.
+            var translations = self.translations;
+
+            if (translations) {
+                var translationText = ko.toJS(translations[translationKey]);
+                if (translationText) {
+                    return translationText;
+                }
+            }
+            return defaultTranslation;
         };
 
         self.afterRender = function () {
@@ -544,7 +637,7 @@ hqDefine("cloudcare/js/form_entry/form_ui", function () {
     Form.prototype.constructor = Container;
 
     /**
-     * Represents a group of GroupedQuestionTileRow which contains questions.
+     * Represents a group of GroupedElementTileRow which contains Question or Group objects.
      * @param {Object} json - The JSON returned from touchforms to represent a Form
      * @param {Object} parent - The object's parent. Either a Form, Group, or Repeat.
      */
@@ -555,14 +648,19 @@ hqDefine("cloudcare/js/form_entry/form_ui", function () {
 
         self.groupId = groupNum++;
         self.rel_ix = ko.observable(relativeIndex(self.ix()));
-        self.isRepetition = parent instanceof Repeat;
+        self.isRepetition = parent.parent instanceof Repeat;
         let parentForm = getParentForm(self);
         let oneQuestionPerScreen = parentForm.displayOptions.oneQuestionPerScreen !== undefined && parentForm.displayOptions.oneQuestionPerScreen();
 
-        if (!oneQuestionPerScreen && self.isRepetition) {
-            self.caption(null);
-            self.hideCaption = true;
+        // Header and captions
+        self.showHeader = oneQuestionPerScreen || self.isRepetition || ko.utils.unwrapObservable(self.caption) || ko.utils.unwrapObservable(self.caption_markdown);
+        if (self.showHeader) {
+            if (!oneQuestionPerScreen && self.isRepetition) {
+                self.caption(null);
+                self.hideCaption = true;
+            }
         }
+
         if (_.has(json, 'domain_meta') && _.has(json, 'style')) {
             self.domain_meta = parseMeta(json.datatype, json.style);
         }
@@ -575,7 +673,9 @@ hqDefine("cloudcare/js/form_entry/form_ui", function () {
         };
 
         var styles = _.has(json, 'style') && json.style && json.style.raw ? json.style.raw.split(/\s+/) : [];
+        self.stripeRepeats = _.contains(styles, constants.STRIPE_REPEATS);
         self.collapsible = _.contains(styles, constants.COLLAPSIBLE);
+        self.groupBorder = _.contains(styles, constants.GROUP_BORDER);
         self.showChildren = ko.observable(!self.collapsible || _.contains(styles, constants.COLLAPSIBLE_OPEN));
         self.toggleChildren = function () {
             if (self.collapsible) {
@@ -597,7 +697,6 @@ hqDefine("cloudcare/js/form_entry/form_ui", function () {
                 this.toggleChildren(data, event);
             }
         };
-
         self.childrenRequired = ko.computed(function () {
             return _.find(self.children(), function (child) {
                 return child.required() || child.childrenRequired && child.childrenRequired();
@@ -619,9 +718,7 @@ hqDefine("cloudcare/js/form_entry/form_ui", function () {
 
         self.hasAnyNestedQuestions = function () {
             return _.any(self.children(), function (d) {
-                if (d.type() === constants.QUESTION_TYPE || d.type() === constants.REPEAT_TYPE || d.type() === constants.GROUPED_QUESTION_TILE_ROW_TYPE) {
-                    return true;
-                } else if (d.type() === constants.GROUP_TYPE) {
+                if (d.type() === constants.GROUPED_ELEMENT_TILE_ROW_TYPE) {
                     return d.hasAnyNestedQuestions();
                 }
             });
@@ -639,12 +736,17 @@ hqDefine("cloudcare/js/form_entry/form_ui", function () {
             }
             return Container.prototype.headerBackgroundColor.call(self);
         };
+
+        let columnWidth = GroupedElementTileRow.calculateElementWidth(this.style);
+        this.elementTile = `col-sm-${columnWidth}`;
     }
+
     Group.prototype = Object.create(Container.prototype);
     Group.prototype.constructor = Container;
 
     /**
-     * Represents a repeat group. A repeat only has Group objects as children. Each child Group contains GroupedQuestionTileRow
+     * Represents a repeat group. A repeat only has Group objects as children, which are contained
+     * within a GroupedElementTileRow. Each child Group contains GroupedElementTileRow
      * objects which contains the child questions to be rendered
      * @param {Object} json - The JSON returned from touchforms to represent a Form
      * @param {Object} parent - The object's parent. Either a Form, Group, or Repeat.
@@ -671,43 +773,56 @@ hqDefine("cloudcare/js/form_entry/form_ui", function () {
             $('.add').trigger('blur');
         };
 
-        self.getTranslation = function (translationKey, defaultTranslation) {
-            // Find the root level element which contains the translations.
-            var curParent = getParentForm(self);
-            var translations = curParent.translations;
-
-            if (translations) {
-                var addNewRepeatTranslation = ko.toJS(translations[translationKey]);
-                if (addNewRepeatTranslation) {
-                    return addNewRepeatTranslation;
-                }
-            }
-            return defaultTranslation;
-        };
+        const columnWidth = GroupedElementTileRow.calculateElementWidth(this.style);
+        this.elementTile = `col-sm-${columnWidth}`;
     }
     Repeat.prototype = Object.create(Container.prototype);
     Repeat.prototype.constructor = Container;
 
     /**
-     * Represents a group of questions. Questions are grouped such that all questions are
+     * Represents a group of Questions, Group, or Repeat. Elements are grouped such that all elements are
      * contained in the same row.
      * @param {Object} json - The JSON returned from touchforms to represent a Form
      * @param {Object} parent - The object's parent. Either a Form, Group, or Repeat.
      */
-    function GroupedQuestionTileRow(json, parent) {
+    function GroupedElementTileRow(json, parent) {
         var self = this;
         self.parent = parent;
         Container.call(self, json);
 
+        self.hasAnyNestedQuestions = function () {
+            return _.any(self.children(), function (d) {
+                if (d.type() === constants.QUESTION_TYPE || d.type() === constants.REPEAT_TYPE) {
+                    return true;
+                } else if (d.type() === constants.GROUP_TYPE) {
+                    return d.hasAnyNestedQuestions();
+                }
+            });
+        };
+
         self.required = ko.observable(0);
         self.childrenRequired = ko.computed(function () {
             return _.find(self.children(), function (child) {
-                return child.required();
+                return (child.required && child.required() || child.childrenRequired && child.childrenRequired());
             });
         });
     }
-    GroupedQuestionTileRow.prototype = Object.create(Container.prototype);
-    GroupedQuestionTileRow.prototype.constructor = Container;
+    GroupedElementTileRow.prototype = Object.create(Container.prototype);
+    GroupedElementTileRow.prototype.constructor = Container;
+
+    /**
+     * Matches "<n>-per-row" style attributes. If a match if found, it calculates the column width
+     * based on Bootstrap's 12 column grid system and returns the column width.
+     * @param {Object} style - the appearance attributes
+     */
+    GroupedElementTileRow.calculateElementWidth = function (style) {
+        const styleStr = (style) ? ko.utils.unwrapObservable(style.raw) : null;
+        const matchingPerRowStyles = getMatchingStyles(constants.PER_ROW_PATTERN, styleStr);
+        const perRowStyle = matchingPerRowStyles.length === 0 ? null : matchingPerRowStyles[0];
+        const itemsPerRow = perRowStyle !== null ? parseInt(perRowStyle.split("-")[0], 10) : null;
+
+        return itemsPerRow !== null ? Math.round(constants.GRID_COLUMNS / itemsPerRow) : constants.GRID_COLUMNS;
+    };
 
     /**
      * Represents a Question. A Question contains an Entry which is the widget that is displayed for that question
@@ -730,12 +845,11 @@ hqDefine("cloudcare/js/form_entry/form_ui", function () {
             self.domain_meta = parseMeta(json.datatype, json.style);
         }
         self.throttle = 200;
-        self.setWidths();
         // If the question has ever been answered, set this to true.
         self.hasAnswered = false;
 
-        // if media question has been processed in FP successfully set to true
-        self.formplayerProcessed = false;
+        // Media questions use a Deferred object that is resolved on successful Formplayer processing
+        self.formplayerMediaRequest = null;
 
         // pendingAnswer is a copy of an answer being submitted, so that we know not to reconcile a new answer
         // until the question has received a response from the server.
@@ -747,6 +861,17 @@ hqDefine("cloudcare/js/form_entry/form_ui", function () {
         self.hasError = ko.computed(function () {
             return (self.error() || self.serverError()) && !self.dirty();
         });
+
+        self.hasLabelContent = ko.computed(function () {
+            return (
+                ko.utils.unwrapObservable(self.caption)
+                || ko.utils.unwrapObservable(self.caption_markdown)
+                || ko.utils.unwrapObservable(self.help)
+                || ko.utils.unwrapObservable(self.hint)
+                || ko.utils.unwrapObservable(self.required)
+            );
+        });
+        self.setWidths(self.hasLabelContent());
 
         self.form = function () {
             var parent = self.parent;
@@ -760,7 +885,7 @@ hqDefine("cloudcare/js/form_entry/form_ui", function () {
             return self.error() === null && self.serverError() === null;
         };
 
-        self.is_select = (self.datatype() === 'select' || self.datatype() === 'multiselect');
+        self.isButton = self.datatype() === 'select' && self.stylesContains(constants.BUTTON_SELECT);
         self.isLabel = self.datatype() === 'info';
         self.entry = entries.getEntry(self);
         self.entryTemplate = function () {
@@ -804,7 +929,7 @@ hqDefine("cloudcare/js/form_entry/form_ui", function () {
                 }
                 currentNode = parent;
             }
-            var el = $("[for='" + self.entry.entryId + "']");
+            var el = $("#" + self.entry.entryId + "-label");
             $('html, body').animate({
                 scrollTop: $(el).offset().top - 60,
             });
@@ -833,7 +958,7 @@ hqDefine("cloudcare/js/form_entry/form_ui", function () {
             },
             help: {
                 update: function (options) {
-                    return options.data ? markdown.render(DOMPurify.sanitize(options.data)) : null;
+                    return options.data ? markdown.render(options.data) : null;
                 },
             },
         };
@@ -849,8 +974,7 @@ hqDefine("cloudcare/js/form_entry/form_ui", function () {
      */
     Question.prototype.stylesContaining = function (pattern) {
         var self = this;
-        var styleStr = (self.style) ? ko.utils.unwrapObservable(self.style.raw) : null;
-        return getMatchingStyles(pattern, styleStr);
+        return stylesContaining(pattern, self.style);
     };
 
     /**
@@ -858,37 +982,32 @@ hqDefine("cloudcare/js/form_entry/form_ui", function () {
      * @param {Object} pattern - the regex or string used to find matching styles.
      */
     Question.prototype.stylesContains = function (pattern) {
-        return this.stylesContaining(pattern).length > 0;
+        let _self = this;
+        return stylesContains(pattern, _self.style);
     };
 
-    Question.prototype.setWidths = function () {
-        const columnWidth = Question.calculateColumnWidthForPerRowStyle(this.style);
-        const perRowPattern = new RegExp(`\\d+${constants.PER_ROW}(\\s|$)`);
+    Question.prototype.setWidths = function (hasLabel) {
+        const self = this;
+        const columnWidth = GroupedElementTileRow.calculateElementWidth(self.style);
 
-        if (this.stylesContains(perRowPattern)) {
-            this.controlWidth = constants.FULL_WIDTH;
-            this.labelWidth = constants.FULL_WIDTH;
-            this.questionTileWidth = `col-sm-${columnWidth}`;
+        if (self.stylesContains(constants.PER_ROW_PATTERN)) {
+            self.controlWidth = constants.FULL_WIDTH;
+            self.labelWidth = constants.FULL_WIDTH;
+            self.questionTileWidth = `col-sm-${columnWidth}`;
         } else {
-            this.controlWidth = constants.CONTROL_WIDTH;
-            this.labelWidth = constants.LABEL_WIDTH;
-            this.questionTileWidth = constants.FULL_WIDTH;
+            self.controlWidth = constants.CONTROL_WIDTH;
+            self.labelWidth = constants.LABEL_WIDTH;
+            self.questionTileWidth = constants.FULL_WIDTH;
+            if (!hasLabel) {
+                self.controlWidth += ' ' + constants.LABEL_OFFSET;
+            }
         }
-    };
 
-    /**
-     * Matches "<n>-per-row" style attributes. If a match if found, it calculates the column width
-     * based on Bootstrap's 12 column grid system and returns the column width.
-     * @param {Object} style - the appearance attributes
-     */
-    Question.calculateColumnWidthForPerRowStyle = function (style) {
-        const styleStr = (style) ? ko.utils.unwrapObservable(style.raw) : null;
-        const perRowPattern = new RegExp(`\\d+${constants.PER_ROW}(\\s|$)`);
-        const matchingPerRowStyles = getMatchingStyles(perRowPattern, styleStr);
-        const perRowStyle = matchingPerRowStyles.length === 0 ? null : matchingPerRowStyles[0];
-        const itemsPerRow = perRowStyle !== null ? parseInt(perRowStyle.split("-")[0], 10) : null;
-
-        return itemsPerRow !== null ? Math.round(constants.GRID_COLUMNS / itemsPerRow) : constants.GRID_COLUMNS;
+        if (self.stylesContains(constants.SHORT)) {
+            self.controlWidth = constants.SHORT_WIDTH;
+        } else if (self.stylesContains(constants.MEDIUM)) {
+            self.controlWidth = constants.MEDIUM_WIDTH;
+        }
     };
 
     return {

@@ -81,7 +81,7 @@ class GeoConfigViewTestClass(TestCase):
             'selected_grouping_method': GeoConfig.MIN_MAX_GROUPING,
             'max_cases_per_group': 10,
             'min_cases_per_group': 5,
-            'selected_disbursement_algorithm': GeoConfig.ROAD_NETWORK_ALGORITHM,
+            'selected_disbursement_algorithm': GeoConfig.RADIAL_ALGORITHM,
         }
         cls.target_size_grouping_data = {
             'selected_grouping_method': GeoConfig.TARGET_SIZE_GROUPING,
@@ -134,7 +134,7 @@ class GeoConfigViewTestClass(TestCase):
         self.assertEqual(config.selected_grouping_method, GeoConfig.MIN_MAX_GROUPING)
         self.assertEqual(config.max_cases_per_group, 10)
         self.assertEqual(config.min_cases_per_group, 5)
-        self.assertEqual(config.selected_disbursement_algorithm, GeoConfig.ROAD_NETWORK_ALGORITHM)
+        self.assertEqual(config.selected_disbursement_algorithm, GeoConfig.RADIAL_ALGORITHM)
 
     @flag_enabled('GEOSPATIAL')
     def test_config_update(self):
@@ -160,6 +160,47 @@ class GeoConfigViewTestClass(TestCase):
         self.assertEqual(config.user_location_property_name, 'some_other_name')
         self.assertEqual(config.selected_grouping_method, GeoConfig.TARGET_SIZE_GROUPING)
         self.assertEqual(config.target_group_count, 10)
+        self.assertEqual(config.selected_disbursement_algorithm, GeoConfig.RADIAL_ALGORITHM)
+
+    @flag_enabled('GEOSPATIAL')
+    def test_config_update__road_network_algorithm_ff_disabled(self):
+        self._make_post(
+            self.construct_data(
+                case_property='prop1',
+                user_property='prop2',
+                extra_data={
+                    'selected_disbursement_algorithm': GeoConfig.RADIAL_ALGORITHM
+                }
+            )
+        )
+        config = GeoConfig.objects.get(domain=self.domain)
+        self.assertEqual(config.selected_disbursement_algorithm, GeoConfig.RADIAL_ALGORITHM)
+
+        self._make_post(
+            self.construct_data(
+                case_property='prop1',
+                user_property='prop2',
+                extra_data={
+                    'selected_disbursement_algorithm': GeoConfig.ROAD_NETWORK_ALGORITHM
+                },
+            )
+        )
+        config = GeoConfig.objects.get(domain=self.domain)
+        self.assertEqual(config.selected_disbursement_algorithm, GeoConfig.RADIAL_ALGORITHM)
+
+    @flag_enabled('GEOSPATIAL')
+    @flag_enabled('SUPPORT_ROAD_NETWORK_DISBURSEMENT_ALGORITHM')
+    def test_config_update__road_network_algorithm_ff_enabled(self):
+        self._make_post(
+            self.construct_data(
+                case_property='prop1',
+                user_property='prop2',
+                extra_data={
+                    'selected_disbursement_algorithm': GeoConfig.RADIAL_ALGORITHM
+                }
+            )
+        )
+        config = GeoConfig.objects.get(domain=self.domain)
         self.assertEqual(config.selected_disbursement_algorithm, GeoConfig.RADIAL_ALGORITHM)
 
 
@@ -188,7 +229,7 @@ class TestGPSCaptureView(BaseGeospatialViewClass):
 @es_test(requires=[case_search_adapter, user_adapter], setup_class=True)
 class TestGetPaginatedCasesOrUsers(BaseGeospatialViewClass):
 
-    urlname = 'get_paginated_cases_or_users_without_gps'
+    urlname = 'get_paginated_cases_or_users'
 
     @classmethod
     def setUpClass(cls):
@@ -335,28 +376,24 @@ class TestGetUsersWithGPS(BaseGeospatialViewClass):
         super().tearDownClass()
 
     def test_get_users_with_gps(self):
-        expected_output = {
-            'user_data': [
-                {
-                    'id': self.user_a.user_id,
-                    'username': self.user_a.raw_username,
-                    'gps_point': '12.34 45.67',
-                },
-                {
-                    'id': self.user_b.user_id,
-                    'username': self.user_b.raw_username,
-                    'gps_point': '',
-                },
-                {
-                    'id': self.user_c.user_id,
-                    'username': self.user_c.raw_username,
-                    'gps_point': '45.67 12.34',
-                },
-            ],
+        expected_results = {
+            self.user_a.user_id: {
+                'id': self.user_a.user_id,
+                'username': self.user_a.raw_username,
+                'gps_point': '12.34 45.67',
+            },
+            self.user_c.user_id: {
+                'id': self.user_c.user_id,
+                'username': self.user_c.raw_username,
+                'gps_point': '45.67 12.34',
+            }
         }
         self.client.login(username=self.username, password=self.password)
         response = self.client.get(self.endpoint)
-        self.assertEqual(response.json(), expected_output)
+        response_json = response.json()
+        self.assertIn('user_data', response_json)
+        user_data = {user['id']: user for user in response_json['user_data']}
+        self.assertEqual(user_data, expected_results)
 
     def test_get_location_filtered_users(self):
         self.client.login(username=self.username, password=self.password)

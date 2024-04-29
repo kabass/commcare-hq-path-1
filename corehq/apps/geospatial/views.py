@@ -2,7 +2,6 @@ import json
 
 from django.conf import settings
 from django.core.paginator import Paginator
-from django.forms.models import model_to_dict
 from django.http import (
     Http404,
     HttpResponseBadRequest,
@@ -19,6 +18,7 @@ from memoized import memoized
 from requests.exceptions import HTTPError
 
 from dimagi.utils.couch.bulk import get_docs
+from dimagi.utils.couch.database import iter_docs
 from dimagi.utils.web import json_request, json_response
 
 from corehq import toggles
@@ -26,6 +26,7 @@ from corehq.apps.data_dictionary.models import CaseProperty
 from corehq.apps.domain.decorators import login_and_domain_required
 from corehq.apps.domain.views.base import BaseDomainView
 from corehq.apps.es import CaseSearchES, UserES
+from corehq.apps.es.users import missing_or_empty_user_data_property
 from corehq.apps.geospatial.filters import GPSDataFilter
 from corehq.apps.geospatial.forms import GeospatialConfigForm
 from corehq.apps.geospatial.reports import CaseManagementMap
@@ -33,13 +34,13 @@ from corehq.apps.hqwebapp.crispy import CSS_ACTION_CLASS
 from corehq.apps.hqwebapp.decorators import use_datatables, use_jquery_ui
 from corehq.apps.reports.generic import get_filter_classes
 from corehq.apps.reports.standard.cases.basic import CaseListMixin
-from corehq.apps.users.dbaccessors import get_mobile_users_by_filters
-from corehq.apps.users.models import CommCareUser
+from corehq.apps.reports.standard.cases.filters import CaseSearchFilter
+from corehq.apps.users.models import CommCareUser, CouchUser
 from corehq.form_processor.models import CommCareCase
 from corehq.util.timezones.utils import get_timezone
 from corehq.util.view_utils import json_error
 
-from .const import POLYGON_COLLECTION_GEOJSON_SCHEMA
+from .const import POLYGON_COLLECTION_GEOJSON_SCHEMA, GPS_POINT_CASE_PROPERTY
 from .models import GeoConfig, GeoPolygon
 from .routing_solvers.mapbox_optimize import (
     routing_status,
@@ -100,9 +101,12 @@ class CaseDisbursementAlgorithm(BaseDomainView):
     urlname = "case_disbursement"
 
     def post(self, request, domain, *args, **kwargs):
-        solver_class = GeoConfig.objects.get(domain=domain).disbursement_solver
+        config = GeoConfig.objects.get(domain=domain)
         request_json = json.loads(request.body.decode('utf-8'))
-        poll_id, result = solver_class(request_json).solve()
+
+        solver_class = config.disbursement_solver
+        poll_id, result = solver_class(request_json).solve(config=config)
+
         if poll_id is None:
             return json_response(
                 {'result': result}
@@ -227,16 +231,15 @@ class GeospatialConfigPage(BaseConfigView):
             case_type__domain=self.domain,
             data_type=CaseProperty.DataType.GPS,
         )
+        gps_case_props_deprecated_state = {prop.name: prop.deprecated for prop in gps_case_props}
+        if GPS_POINT_CASE_PROPERTY not in gps_case_props_deprecated_state:
+            gps_case_props_deprecated_state[GPS_POINT_CASE_PROPERTY] = False
         context.update({
-            'config': model_to_dict(
-                self.config,
-                fields=GeospatialConfigForm.Meta.fields,
-            ),
-            'gps_case_props_deprecated_state': {
-                prop.name: prop.deprecated for prop in gps_case_props
-            },
+            'config': self.config.as_dict(fields=GeospatialConfigForm.Meta.fields),
+            'gps_case_props_deprecated_state': gps_case_props_deprecated_state,
             'target_grouping_name': GeoConfig.TARGET_SIZE_GROUPING,
             'min_max_grouping_name': GeoConfig.MIN_MAX_GROUPING,
+            'road_network_algorithm_slug': GeoConfig.ROAD_NETWORK_ALGORITHM,
         })
         return context
 
@@ -280,6 +283,7 @@ class GPSCaptureView(BaseDomainView):
         page_context = {
             'mapbox_access_token': settings.MAPBOX_ACCESS_TOKEN,
             'case_types_with_gps': list(case_types),
+            'couch_user_username': self.request.couch_user.raw_username,
         }
         page_context.update(self._case_filters_context())
         return page_context
@@ -313,7 +317,7 @@ class GPSCaptureView(BaseDomainView):
 
         if data_type == 'case':
             if create_case:
-                data_item['owner_id'] = request.couch_user.user_id
+                data_item['owner_id'] = data_item['owner_id'] or request.couch_user.user_id
                 create_case_with_gps_property(request.domain, data_item)
             else:
                 set_case_gps_property(request.domain, data_item)
@@ -327,7 +331,7 @@ class GPSCaptureView(BaseDomainView):
 
 @require_GET
 @login_and_domain_required
-def get_paginated_cases_or_users_without_gps(request, domain):
+def get_paginated_cases_or_users(request, domain):
     page = int(request.GET.get('page', 1))
     limit = int(request.GET.get('limit', 5))
     query = request.GET.get('query', '')
@@ -336,7 +340,7 @@ def get_paginated_cases_or_users_without_gps(request, domain):
     if case_or_user == 'user':
         data = _get_paginated_users_without_gps(domain, page, limit, query)
     else:
-        data = GetPaginatedCases(request, domain).get_paginated_cases_without_gps(domain, page, limit, query)
+        data = GetPaginatedCases(request, domain).get_paginated_cases_without_gps(domain, page, limit)
     return JsonResponse(data)
 
 
@@ -357,7 +361,7 @@ class GetPaginatedCases(CaseListMixin):
             .domain(self.domain)
         )
 
-    def get_paginated_cases_without_gps(self, domain, page, limit, query):
+    def get_paginated_cases_without_gps(self, domain, page, limit):
         show_cases_with_missing_gps_data_only = True
 
         if GPSDataFilter(self.request, self.domain).show_all:
@@ -367,11 +371,12 @@ class GetPaginatedCases(CaseListMixin):
         location_prop_name = get_geo_case_property(domain)
         if show_cases_with_missing_gps_data_only:
             cases_query = cases_query.case_property_missing(location_prop_name)
-        cases_query = (
-            cases_query
-            .search_string_query(query, ['name'])
-            .sort('server_modified_on', desc=True)
-        )
+
+        search_string = CaseSearchFilter.get_value(self.request, self.domain)
+        if search_string:
+            cases_query = cases_query.set_query({"query_string": {"query": search_string}})
+
+        cases_query = cases_query.sort('server_modified_on', desc=True)
         case_ids = cases_query.get_ids()
 
         paginator = Paginator(case_ids, limit)
@@ -428,17 +433,18 @@ def _get_paginated_users_without_gps(domain, page, limit, query):
 @require_GET
 @login_and_domain_required
 def get_users_with_gps(request, domain):
+    location_prop_name = get_geo_user_property(domain)
+    query = (
+        UserES()
+        .domain(domain)
+        .mobile_users()
+        .NOT(missing_or_empty_user_data_property(location_prop_name))
+    )
     selected_location_id = request.GET.get('location_id')
     if selected_location_id:
-        user_filters = {
-            'location_id': selected_location_id,
-            'selected_location_only': True,
-        }
-        users = get_mobile_users_by_filters(domain, user_filters)
-    else:
-        users = CommCareUser.by_domain(domain)
-
-    location_prop_name = get_geo_user_property(domain)
+        query = query.location(selected_location_id)
+    user_ids = query.scroll_ids()
+    users = map(CouchUser.wrap_correctly, iter_docs(CommCareUser.get_db(), user_ids))
     user_data = [
         {
             'id': user.user_id,

@@ -17,6 +17,7 @@ from dimagi.utils.parsing import json_format_date, string_to_utc_datetime
 
 from corehq import toggles
 from corehq.apps.analytics.tasks import track_workflow
+from corehq.apps.es import UserES
 from corehq.apps.es import cases as case_es
 from corehq.apps.es import filters
 from corehq.apps.es.aggregations import (
@@ -29,7 +30,6 @@ from corehq.apps.locations.permissions import (
     location_safe,
 )
 from corehq.apps.reports import util
-from corehq.apps.reports.const import USER_QUERY_LIMIT
 from corehq.apps.reports.analytics.esaccessors import (
     get_active_case_counts_by_owner,
     get_case_counts_closed_by_user,
@@ -45,6 +45,7 @@ from corehq.apps.reports.analytics.esaccessors import (
     get_submission_counts_by_user,
     get_total_case_counts_by_owner,
 )
+from corehq.apps.reports.const import USER_QUERY_LIMIT
 from corehq.apps.reports.datatables import (
     DataTablesColumn,
     DataTablesColumnGroup,
@@ -153,6 +154,16 @@ class MultiFormDrilldownMixin(object):
     @memoized
     def all_relevant_forms(self):
         return FormsByApplicationFilter.get_value(self.request, self.domain)
+
+    @property
+    @memoized
+    def selected_form_data(self):
+        forms = list(FormsByApplicationFilter.get_value(self.request, self.domain).values())
+        if len(forms) == 1 and forms[0]['xmlns']:
+            return forms[0]
+        non_fuzzy_forms = [form for form in forms if not form['is_fuzzy']]
+        if len(non_fuzzy_forms) == 1:
+            return non_fuzzy_forms[0]
 
 
 class CompletionOrSubmissionTimeMixin(object):
@@ -965,8 +976,10 @@ class DailyFormStatsReport(WorkerMonitoringReportTableBase, CompletionOrSubmissi
 
     def get_raw_user_link(self, user):
         from corehq.apps.reports.standard.inspect import SubmitHistory
+        value = CompletionOrSubmissionTimeFilter.get_value(self.request, self.domain)
+        sub_time_param = {CompletionOrSubmissionTimeFilter.slug: value} if value else None
         return _get_raw_user_link(user, SubmitHistory.get_url(domain=self.domain),
-                                  filter_class=EMWF)
+                                  filter_class=EMWF, additional_params=sub_time_param)
 
     @property
     def template_context(self):
@@ -979,7 +992,7 @@ class DailyFormStatsReport(WorkerMonitoringReportTableBase, CompletionOrSubmissi
 
 @location_safe
 class FormCompletionTimeReport(WorkerMonitoringFormReportTableBase, DatespanMixin,
-                               CompletionOrSubmissionTimeMixin):
+                               CompletionOrSubmissionTimeMixin, MultiFormDrilldownMixin):
     name = gettext_lazy("Form Completion Time")
     slug = "completion_times"
     fields = ['corehq.apps.reports.filters.users.ExpandedMobileWorkerFilter',
@@ -989,16 +1002,6 @@ class FormCompletionTimeReport(WorkerMonitoringFormReportTableBase, DatespanMixi
 
     description = gettext_lazy("Statistics on time spent on a particular form.")
     is_cacheable = True
-
-    @property
-    @memoized
-    def selected_form_data(self):
-        forms = list(FormsByApplicationFilter.get_value(self.request, self.domain).values())
-        if len(forms) == 1 and forms[0]['xmlns']:
-            return forms[0]
-        non_fuzzy_forms = [form for form in forms if not form['is_fuzzy']]
-        if len(non_fuzzy_forms) == 1:
-            return non_fuzzy_forms[0]
 
     @property
     def headers(self):
@@ -1384,8 +1387,10 @@ class WorkerActivityReport(WorkerMonitoringCaseReportTableBase, DatespanMixin):
             )
             return util.get_simplified_users(user_query)
         elif not self.group_ids:
-            ret = [util._report_user(u) for u in list(CommCareUser.by_domain(self.domain))]
-            return ret
+            user_query = UserES().domain(self.domain)
+            if not toggles.WEB_USERS_IN_REPORTS.enabled(self.domain):
+                user_query = user_query.mobile_users()
+            return util.get_simplified_users(user_query)
         else:
             all_users = flatten_list(list(self.users_by_group.values()))
             all_users.extend([user for user in self.get_users_by_mobile_workers().values()])
@@ -1799,16 +1804,26 @@ class WorkerActivityReport(WorkerMonitoringCaseReportTableBase, DatespanMixin):
         return rows
 
 
-def _get_raw_user_link(user, url, filter_class):
+def _get_raw_user_link(user, url, filter_class, additional_params=None):
     """
-    filter_class is expected to be either ExpandedMobileWorkerFilter or a
-    subclass of it, such as the CaseListFilter
+    Generates an HTML anchor tag (<a>) for a user link with additional query parameters.
+
+    Parameters:
+    - user (SimplifiedUserInfo object): The user for whom the link is being generated.
+    - url (str): The base URL to which filter parameters and any additional parameters will be appended.
+    - filter_class (class): A filter class expected to be either ExpandedMobileWorkerFilter or a subclass of it,
+    such as CaseListFilter.
+    - additional_params (dict, optional): An optional dictionary of additional query parameters to be appended to
+    the URL. Each key-value pair in the dictionary represents a parameter name and its value.
+
+    Returns:
+    - str: A string containing an HTML anchor tag (<a>) with the constructed URL and the user's display name.
     """
     user_link_template = '<a href="{link}?{params}">{username}</a>'
     user_link = format_html(
         user_link_template,
         link=url,
-        params=urlencode(filter_class.for_user(user.user_id)),
+        params=urlencode(filter_class.for_user(user.user_id) | (additional_params or {})),
         username=user.username_in_report,
     )
     return user_link

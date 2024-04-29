@@ -56,6 +56,9 @@ MANAGERS = ADMINS
 
 # default to the system's timezone settings
 TIME_ZONE = "UTC"
+# this preserves current behavior prior to Django 5.0,
+# where timezone support will be enabled by default
+USE_TZ = False
 
 
 # Language code for this installation. All choices can be found here:
@@ -231,10 +234,10 @@ DEFAULT_APPS = (
     'django_otp.plugins.otp_static',
     'django_otp.plugins.otp_totp',
     'two_factor',
+    'two_factor.plugins.phonenumber',
     'ws4redis',
     'statici18n',
     'django_user_agents',
-    'logentry_admin',
     'oauth2_provider',
 )
 
@@ -382,6 +385,7 @@ HQ_APPS = (
     'corehq.apps.case_search',
     'corehq.apps.zapier.apps.ZapierConfig',
     'corehq.apps.translations',
+    'corehq.apps.app_execution',
 
     # custom reports
     'custom.reports.mc',
@@ -821,6 +825,7 @@ REPEATER_CLASSES = [
     'corehq.motech.repeaters.models.AppStructureRepeater',
     'corehq.motech.repeaters.models.UserRepeater',
     'corehq.motech.repeaters.models.LocationRepeater',
+    'corehq.motech.repeaters.models.DataSourceRepeater',
     'corehq.motech.fhir.repeaters.FHIRRepeater',
     'corehq.motech.openmrs.repeaters.OpenmrsRepeater',
     'corehq.motech.dhis2.repeaters.Dhis2Repeater',
@@ -853,33 +858,9 @@ SUMOLOGIC_URL = None
 # on both a single instance or distributed setup this should assume localhost
 ELASTICSEARCH_HOST = 'localhost'
 ELASTICSEARCH_PORT = 9200
-ELASTICSEARCH_MAJOR_VERSION = 2
+ELASTICSEARCH_MAJOR_VERSION = 5
 # If elasticsearch queries take more than this, they result in timeout errors
 ES_SEARCH_TIMEOUT = 30
-
-# The variables should be used while reindexing an index.
-# When the variables are set to true the data will be written to both primary and secondary indexes.
-
-ES_APPS_INDEX_MULTIPLEXED = True
-ES_CASE_SEARCH_INDEX_MULTIPLEXED = True
-ES_CASES_INDEX_MULTIPLEXED = True
-ES_DOMAINS_INDEX_MULTIPLEXED = True
-ES_FORMS_INDEX_MULTIPLEXED = True
-ES_GROUPS_INDEX_MULTIPLEXED = True
-ES_SMS_INDEX_MULTIPLEXED = True
-ES_USERS_INDEX_MULTIPLEXED = True
-
-
-# Setting the variable to True would mean that the primary index would become secondary and vice-versa
-# This should only be set to True after successfully running and verifying migration command on a particular index. 
-ES_APPS_INDEX_SWAPPED = False
-ES_CASE_SEARCH_INDEX_SWAPPED = False
-ES_CASES_INDEX_SWAPPED = False
-ES_DOMAINS_INDEX_SWAPPED = False
-ES_FORMS_INDEX_SWAPPED = False
-ES_GROUPS_INDEX_SWAPPED = False
-ES_SMS_INDEX_SWAPPED = False
-ES_USERS_INDEX_SWAPPED = False
 
 BITLY_OAUTH_TOKEN = None
 
@@ -1042,6 +1023,8 @@ COMMCARE_NAME = {
     "default": "CommCare",
 }
 
+ALLOW_MAKE_SUPERUSER_COMMAND = True
+
 ENTERPRISE_MODE = False
 
 RESTRICT_DOMAIN_CREATION = False
@@ -1112,9 +1095,10 @@ SESSION_BYPASS_URLS = [
     r'^/a/{domain}/apps/download/',
 ]
 
-# Disable builtin throttling for two factor backup tokens, since we have our own
-# See corehq.apps.hqwebapp.signals and corehq.apps.hqwebapp.forms for details
-OTP_STATIC_THROTTLE_FACTOR = 0
+# Preserves behavior after upgrading past version 1.15.4 of django-two-factor-auth, which changed the factor to 10
+OTP_STATIC_THROTTLE_FACTOR = 1
+OTP_TOTP_THROTTLE_FACTOR = 1
+TWO_FACTOR_PHONE_THROTTLE_FACTOR = 1
 
 ALLOW_PHONE_AS_DEFAULT_TWO_FACTOR_DEVICE = False
 RATE_LIMIT_SUBMISSIONS = False
@@ -1150,6 +1134,18 @@ COMMCARE_ANALYTICS_HOST = ""
 FCM_CREDS = None
 
 CONNECTID_USERINFO_URL = 'http://localhost:8080/o/userinfo'
+
+MAX_MOBILE_UCR_LIMIT = 300  # used in corehq.apps.cloudcare.util.should_restrict_web_apps_usage
+
+# used by periodic tasks that delete soft deleted data older than PERMANENT_DELETION_WINDOW days
+PERMANENT_DELETION_WINDOW = 30  # days
+
+# GSheets related work that was dropped, but should be picked up in the near future
+GOOGLE_OATH_CONFIG = {}
+GOOGLE_OAUTH_SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
+GOOGLE_SHEETS_API_NAME = "sheets"
+GOOGLE_SHEETS_API_VERSION = "v4"
+DAYS_KEEP_GSHEET_STATUS = 14
 
 try:
     # try to see if there's an environmental variable set for local_settings
@@ -1229,8 +1225,6 @@ for database in DATABASES.values():
 _location = lambda x: os.path.join(FILEPATH, x)
 
 IS_SAAS_ENVIRONMENT = SERVER_ENVIRONMENT in ('production', 'staging')
-
-ALLOW_MAKE_SUPERUSER_COMMAND = True
 
 if 'KAFKA_URL' in globals():
     import warnings
@@ -1974,10 +1968,14 @@ DOMAIN_MODULE_MAP = {
     'airszambia': 'custom.abt',
     'airszimbabwe': 'custom.abt',
     'kenya-vca': 'custom.abt',
+    'pmievolve-ethiopia-1': 'custom.abt',
+    'pmievolve-ghana': 'custom.abt',
     'pmievolve-madagascar': 'custom.abt',
     'pmievolve-malawi': 'custom.abt',
     'pmievolve-mozambique': 'custom.abt',
     'pmievolve-rwanda': 'custom.abt',
+    'pmievolve-sierra-leone': 'custom.abt',
+    'pmievolve-uganda': 'custom.abt',
     'pmievolve-zambia': 'custom.abt',
     'vectorlink-benin': 'custom.abt',
     'vectorlink-burkina-faso': 'custom.abt',
@@ -2079,15 +2077,5 @@ os.environ['DD_TRACE_STARTUP_LOGS'] = os.environ.get('DD_TRACE_STARTUP_LOGS', 'F
 
 SECURE_REFERRER_POLICY = "strict-origin-when-cross-origin"
 
-# Config settings for the google oauth handshake to get a user token
-# Google Cloud Platform secret settings config file
-GOOGLE_OATH_CONFIG = {}
-# Scopes to give read/write access to the code that generates the spreadsheets
-GOOGLE_OAUTH_SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
-
-GOOGLE_SHEETS_API_NAME = "sheets"
-GOOGLE_SHEETS_API_VERSION = "v4"
-
-DAYS_KEEP_GSHEET_STATUS = 14
-
-PERMANENT_DELETION_WINDOW = 30  # days
+# NOTE: if you are adding a new setting that you intend to have other environments override,
+# make sure you add it before localsettings are imported (from localsettings import *)

@@ -394,7 +394,7 @@ class ExportColumn(DocumentSchema):
         column.selected = (
             auto_select
             and not column._is_deleted(app_ids_and_versions)
-            and not is_case_update
+            and (not is_case_update or is_case_id)
             and not is_label_question
             and (is_main_table or is_bulk_export)
             and not is_deprecated
@@ -651,6 +651,11 @@ class TableConfiguration(DocumentSchema, ReadablePathMixin):
 
         return None, None
 
+    def get_column_by_path_str(self, path, doc_type):
+        path_nodes = [PathNode(name=node) for node in path.split('.')]
+        _, column = self.get_column(item_path=path_nodes, item_doc_type=doc_type, column_transform=None)
+        return column
+
     @memoized
     def get_hyperlink_column_indices(self, split_columns):
         export_column_index = 0
@@ -817,6 +822,7 @@ class ExportInstance(BlobMixin, Document):
 
     sharing = StringProperty(default=SharingOption.EDIT_AND_EXPORT, choices=SharingOption.CHOICES)
     owner_id = StringProperty(default=None)
+    selected_geo_property = StringProperty(default='')
 
     _blobdb_type_code = CODES.data_export
 
@@ -826,9 +832,16 @@ class ExportInstance(BlobMixin, Document):
     @classmethod
     def wrap(cls, data):
         from corehq.apps.export.views.utils import clean_odata_columns
+        # This is a temporary solution to make sure geojson exports have split_multiselects set to false,
+        # otherwise it won't work. Ticket SC-3569 is for making geojson form exports compatible with
+        # the split_multiselects option.
+        if data.get('export_format', '') == 'geojson':
+            data['split_multiselects'] = False
+
         export_instance = super(ExportInstance, cls).wrap(data)
         if export_instance.is_odata_config:
             clean_odata_columns(export_instance)
+
         return export_instance
 
     @property
@@ -1276,6 +1289,17 @@ class FormExportInstance(ExportInstance):
                     ):
                         column.label = 'formid'
                         column.selected = True
+
+        if export_instance.export_format == "geojson":
+            for table in export_instance.tables:
+                column = table.get_column_by_path_str(
+                    path=table.selected_geo_property,
+                    doc_type="GeopointItem",
+                )
+                if column and not column.selected:
+                    # ensure the selected_geo_property is selected
+                    column.selected = True
+
         return export_instance
 
     @property

@@ -15,7 +15,6 @@ from django.views.generic.edit import BaseCreateView, BaseUpdateView
 from corehq import toggles
 from corehq.apps.domain.decorators import login_and_domain_required
 from corehq.apps.domain.views.settings import BaseProjectSettingsView
-from corehq.apps.hqwebapp.decorators import use_jquery_ui
 from corehq.apps.hqwebapp.views import CRUDPaginatedViewMixin
 from corehq.apps.users.decorators import require_permission
 from corehq.apps.users.models import HqPermissions
@@ -201,7 +200,6 @@ class DataSetMapCreateView(BaseCreateView, BaseProjectSettingsView):
 
     @method_decorator(require_permission(HqPermissions.edit_motech))
     @method_decorator(toggles.DHIS2_INTEGRATION.required_decorator())
-    @use_jquery_ui  # for datepicker
     def dispatch(self, request, *args, **kwargs):
         return super().dispatch(request, *args, **kwargs)
 
@@ -234,7 +232,6 @@ class DataSetMapUpdateView(BaseUpdateView, BaseProjectSettingsView,
 
     @method_decorator(require_permission(HqPermissions.edit_motech))
     @method_decorator(toggles.DHIS2_INTEGRATION.required_decorator())
-    @use_jquery_ui  # for datepicker
     def dispatch(self, request, *args, **kwargs):
         return super().dispatch(request, *args, **kwargs)
 
@@ -371,7 +368,7 @@ def send_dataset_now(request, domain, pk):
 @login_and_domain_required
 @require_http_methods(["GET", "POST"])
 def config_dhis2_repeater(request, domain, repeater_id):
-    repeater = Dhis2Repeater.objects.get(repeater_id=repeater_id)
+    repeater = Dhis2Repeater.objects.get(id=repeater_id)
     assert repeater.domain == domain, f'"{repeater.domain}" != "{domain}"'
 
     if request.method == 'POST':
@@ -399,7 +396,7 @@ def config_dhis2_repeater(request, domain, repeater_id):
 @login_and_domain_required
 @require_http_methods(["GET", "POST"])
 def config_dhis2_entity_repeater(request, domain, repeater_id):
-    repeater = Dhis2EntityRepeater.objects.get(repeater_id=repeater_id)
+    repeater = Dhis2EntityRepeater.objects.get(id=repeater_id)
     assert repeater.domain == domain
     if request.method == 'POST':
         errors = []

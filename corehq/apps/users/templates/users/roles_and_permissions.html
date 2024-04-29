@@ -25,6 +25,7 @@
   {% initial_page_data "export_ownership_enabled" export_ownership_enabled %}
   {% initial_page_data "data_registry_choices" data_registry_choices %}
   {% initial_page_data "can_edit_linked_data" can_edit_linked_data %}
+  {% initial_page_data "commcare_analytics_roles" commcare_analytics_roles %}
 
   <p class="lead">
     {% if can_edit_roles %}
@@ -301,14 +302,14 @@
                                     {% trans "Edit Role" %}
                                 </span>
                                 <span data-bind="ifnot: $root.allowEdit && (!upstream_id() || $parent.unlockLinkedRoles())">
-                                    <i class="fa fa-eye"></i>
+                                    <i class="fa-solid fa-eye"></i>
                                     {% trans "View Role" %}
                                 </span>
             </button>
             <button class="btn btn-danger"
               data-bind="visible: $data._id && !$data.preventRoleDelete && $root.allowEdit && isEditable,
                 click: $data._id ? $root.setRoleBeingDeleted : null">
-              <i class="fa fa-trash"></i>
+              <i class="fa-regular fa-trash-can"></i>
               {% trans "Delete" %}
             </button>
           </td>

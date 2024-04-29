@@ -1,5 +1,6 @@
 import re
 from contextlib import contextmanager
+from django.forms.widgets import DateTimeInput
 from django.template.loader import render_to_string
 from django.utils.safestring import mark_safe
 from django.utils.translation import gettext
@@ -70,6 +71,11 @@ class TextField(Field):
 
 class ErrorsOnlyField(Field):
     template = 'hqwebapp/crispy/field/errors_only_field.html'
+
+
+def get_form_action_class():
+    """This is only valid for bootstrap 5"""
+    return CSS_LABEL_CLASS_BOOTSTRAP5.replace('col', 'offset') + ' ' + CSS_FIELD_CLASS_BOOTSTRAP5
 
 
 def _get_offsets(context):
@@ -268,6 +274,10 @@ class FieldWithExtras(Field):
         return super(FieldWithExtras, self).render(form, context, template_pack=template_pack, **kwargs)
 
 
+class CheckboxField(Field):
+    template = "bootstrap3to5/layout/prepended_appended_text.html"
+
+
 class FieldWithHelpBubble(FieldWithExtras):
     """Add a help bubble after the field label.
 
@@ -345,6 +355,10 @@ class FieldsetAccordionGroup(AccordionGroup):
 
 class RadioSelect(Field):
     template = "hqwebapp/crispy/radioselect.html"
+
+
+class DatetimeLocalWidget(DateTimeInput):
+    input_type = "datetime-local"
 
 
 def make_form_readonly(form):

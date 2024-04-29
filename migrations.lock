@@ -108,6 +108,9 @@ accounting
  0086_add_duplicate_invoice_id_to_invoice_model
  0087_invoice_unique_constraints
  0088_add_new_softwareplan_visibility
+ 0089_dedupe_priv
+ 0090_custom_domain_alerts_priv
+ 0091_remove_custom_banner_alerts_feature_flag
 admin
  0001_initial
  0002_logentry_remove_auto_add
@@ -123,6 +126,8 @@ api
  0002_alter_permissions
  0003_populate_apiuser
  0004_rename_apiuser
+app_execution
+ 0001_initial
 app_manager
  0001_linked_app_domain
  0002_latestenabledbuildprofiles
@@ -192,6 +197,7 @@ blobs
  0011_blobmeta_compressed
  0012_rename_indexes
  0013_drop_icds_cas_index
+ 0014_alter_deletedblobmeta_id
 case_importer
  0001_initial
  0002_auto_20161206_1937
@@ -235,6 +241,7 @@ cleanup
  0013_migrate_kafka_checkpoint_format
  0014_deletedcouchdoc
  0015_deletedcouchdoc_unique_id_and_type
+ 0016_add_deletedsqldoc
 cloudcare
  0001_initial
  0002_sqlapplicationaccess
@@ -337,6 +344,10 @@ data_interfaces
  0032_bootstrap_audit_events_for_update_rules
  0033_automaticupdaterule_deleted_on
  0034_case_name_actions
+ 0035_add_case_duplicate_new
+ 0036_backfill_dedupe_match_values
+ 0037_add_dedupe_update_toggle
+ 0038_alter_caseduplicate_potential_duplicates
 dhis2
  0001_initial
  0002_auto_20170322_1323
@@ -401,6 +412,9 @@ es
  0003_add_assigned_location_ids
  0004_make_new_indexes
  0005_add_epoch_as_valid_date_to_forms
+ 0006_verify_es2_indices_reindexed
+ 0007_init_indices_for_fresh_es_5
+ 0008_add_doc_id_to_all_mappings
 events
  0001_add_events_model
  0002_attendancetrackingconfig
@@ -549,6 +563,7 @@ form_processor
  0093_rename_models (5 squashed migrations)
  0094_add_partial_index_xforms
  0095_remove_xforminstance_deleted_state
+ 0096_add_partial_index_cases
 formplayer_api
  0001_drop_old_tables
 generic_inbound
@@ -563,6 +578,7 @@ geospatial
  0002_geoconfig
  0003_auto_20230908_0927
  0004_auto_20230920_0821
+ 0005_auto_20240202_0807
 hqadmin
  0001_initial
  0002_vcmmigrationaudit
@@ -584,6 +600,8 @@ hqadmin
  0018_back_populate_deploy_commit
  0019_celery_taskmeta_sequence
  0020_celery_results_sequence
+hqmedia
+ 0001_initial
 hqwebapp
  0001_initial
  0002_auto_20171121_1803
@@ -735,6 +753,8 @@ phonelog
  0012_server_date_not_null
  0013_delete_olddevicereportentry
  0014_auto_20170718_2039
+phonenumber
+ 0001_squashed_0001_initial (10 squashed migrations)
 pillow_retry
  0001_initial
  0002_pillowerror_queued
@@ -782,6 +802,10 @@ repeaters
  0002_repeaters_db
  0003_id_fields
  0004_fix_whitelist_bug_repeaters
+ 0005_datasourcerepeater
+ 0006_int_state_add_next_check_rm_repeater_id
+ 0007_lengthen_payload_id
+ 0008_sqlrepeatrecords
 reports
  0001_initial
  0002_auto_20171121_1803
@@ -828,6 +852,7 @@ scheduling
  0024_app_id
  0025_schedule_and_broadcast_deleted_on
  0026_add_model_fcm_notification_content
+ 0027_emailcontent_html_message
 scheduling_partitioned
  0001_initial
  0002_case_schedule_instances
@@ -900,6 +925,7 @@ sms
  0055_messagingsubevent_index_domain_date_id
  0056_backfill_sms_event_date
  0057_fcm_content_type_messaging_events
+ 0058_email_html_body
 smsbillables
  0001_initial
  0002_bootstrap
@@ -1063,6 +1089,9 @@ sso
  0003_oidc_onelogin_idp_update
  0004_login_enforcement_type_sso_test_user
  0005_alter_identityprovider_idp_type
+ 0006_add_new_fields_in_identityprovider
+ 0007_add_multi_view_api_fields
+ 0008_alter_identityprovider_idp_type
 start_enterprise
  0001_initial
 stock
@@ -1090,13 +1119,7 @@ translations
  0008_remove_couch_id
  0009_auto_20200924_1753
 two_factor
- 0001_initial
- 0002_auto_20150110_0810
- 0003_auto_20150817_1733
- 0004_auto_20160205_1827
- 0005_auto_20160224_0450
- 0006_phonedevice_key_default
- 0007_auto_20201201_1019
+ (no migrations)
 user_importer
  0001_initial
 userreports
@@ -1180,6 +1203,13 @@ users
  0052_hqapikey_last_used
  0053_userreportingmetadatastaging_fcm_token
  0054_connectiduserlink
+ 0055_add_user_data
+ 0056_add_manage_domain_alerts_permission
+ 0057_populate_sql_user_data
+ 0058_createprofileanduserdata_copylocation
+ 0059_copy_transient_invitation_supply_point
+ 0060_invitations_addtableau_roles_and_groupids
+ 0061_auto_20240423_0802
 util
  0001_initial
  0002_complaintbouncemeta_permanentbouncemeta_transientbounceemail

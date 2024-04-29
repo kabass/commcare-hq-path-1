@@ -1,7 +1,6 @@
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from unittest.mock import Mock, patch
-import uuid
 
 from django.test import TestCase
 from django.utils import timezone
@@ -14,13 +13,14 @@ from corehq.form_processor.utils.xform import (
     TestFormMetadata,
 )
 from corehq.motech.models import ConnectionSettings, RequestLog
-from corehq.motech.repeaters.models import FormRepeater, RepeatRecord, Repeater
-from corehq.motech.repeaters.tasks import delete_old_request_logs, process_repeater, _process_repeat_record
-from ..const import (
-    RECORD_CANCELLED_STATE,
-    RECORD_FAILURE_STATE,
-    RECORD_PENDING_STATE,
+from corehq.motech.repeaters.dbaccessors import delete_all_repeat_records
+from corehq.motech.repeaters.models import FormRepeater, SQLRepeatRecord, Repeater
+from corehq.motech.repeaters.tasks import (
+    _process_repeat_record,
+    delete_old_request_logs,
+    process_repeater,
 )
+from ..const import State
 
 DOMAIN = 'gaidhlig'
 PAYLOAD_IDS = ['aon', 'dha', 'trì', 'ceithir', 'coig', 'sia', 'seachd', 'ochd',
@@ -28,9 +28,6 @@ PAYLOAD_IDS = ['aon', 'dha', 'trì', 'ceithir', 'coig', 'sia', 'seachd', 'ochd',
 
 
 class TestDeleteOldRequestLogs(TestCase):
-
-    def tearDown(self):
-        RequestLog.objects.filter(domain=DOMAIN).delete()
 
     def test_raw_delete_logs_old(self):
         log = RequestLog.objects.create(domain=DOMAIN)
@@ -78,16 +75,17 @@ class TestProcessRepeater(TestCase):
     def setUpClass(cls):
         super().setUpClass()
         cls.domain = create_domain(DOMAIN)
+        cls.addClassCleanup(cls.domain.delete)
         cls.connection_settings = ConnectionSettings.objects.create(
             domain=DOMAIN,
             name='Test API',
             url="http://localhost/api/"
         )
+        cls.addClassCleanup(delete_all_repeat_records)
 
     def setUp(self):
         self.repeater = FormRepeater.objects.create(
             domain=DOMAIN,
-            repeater_id=uuid.uuid4().hex,
             format='form_xml',
             connection_settings=self.connection_settings
         )
@@ -100,15 +98,6 @@ class TestProcessRepeater(TestCase):
             )
             just_now += timedelta(seconds=1)
 
-    def tearDown(self):
-        self.repeater.delete()
-
-    @classmethod
-    def tearDownClass(cls):
-        cls.connection_settings.delete()
-        cls.domain.delete()
-        super().tearDownClass()
-
     def test_get_payload_fails(self):
         # If the payload of a repeat record is missing, it should be
         # cancelled, and process_repeater() should continue to the next
@@ -120,11 +109,10 @@ class TestProcessRepeater(TestCase):
         # All records were tried and cancelled
         records = list(self.repeater.repeat_records.all())
         self.assertEqual(len(records), 10)
-        self.assertTrue(all(r.state == RECORD_CANCELLED_STATE for r in records))
+        self.assertTrue(all(r.state == State.Cancelled for r in records))
         # All records have a cancelled Attempt
         self.assertTrue(all(len(r.attempts) == 1 for r in records))
-        self.assertTrue(all(r.attempts[0].state == RECORD_CANCELLED_STATE
-                            for r in records))
+        self.assertTrue(all(r.attempts[0].state == State.Cancelled for r in records))
 
     def test_send_request_fails(self):
         # If send_request() should be retried with the same repeat
@@ -137,8 +125,7 @@ class TestProcessRepeater(TestCase):
 
         # Only the first record was attempted, the rest are still pending
         states = [r.state for r in self.repeater.repeat_records.all()]
-        self.assertListEqual(states, ([RECORD_FAILURE_STATE]
-                                      + [RECORD_PENDING_STATE] * 9))
+        self.assertListEqual(states, ([State.Fail] + [State.Pending] * 9))
 
 
 @contextmanager
@@ -158,13 +145,13 @@ def form_context(form_ids):
 class TestProcessRepeatRecord(TestCase):
 
     def test_returns_if_record_is_cancelled(self):
-        repeat_record = RepeatRecord(
+        repeat_record = SQLRepeatRecord(
             domain=self.domain,
             payload_id='abc123',
             registered_at=datetime.utcnow(),
             repeater_id=self.repeater.repeater_id,
             next_check=None,
-            cancelled=True,
+            state=State.Cancelled,
         )
 
         _process_repeat_record(repeat_record)
@@ -175,7 +162,7 @@ class TestProcessRepeatRecord(TestCase):
     def test_cancels_and_returns_if_domain_cannot_forward(self):
         self.mock_domain_can_forward.return_value = False
 
-        repeat_record = RepeatRecord(
+        repeat_record = SQLRepeatRecord(
             domain=self.domain,
             payload_id='abc123',
             registered_at=datetime.utcnow(),
@@ -184,26 +171,26 @@ class TestProcessRepeatRecord(TestCase):
 
         _process_repeat_record(repeat_record)
 
-        fetched_repeat_record = RepeatRecord.get(repeat_record._id)
-        self.assertTrue(fetched_repeat_record.cancelled)
+        fetched_repeat_record = SQLRepeatRecord.objects.get(id=repeat_record.id)
+        self.assertEqual(fetched_repeat_record.state, State.Cancelled)
         self.assertEqual(self.mock_fire.call_count, 0)
         self.assertEqual(self.mock_postpone_by.call_count, 0)
 
     def test_cancels_and_returns_if_repeat_record_exceeds_max_retries(self):
-        repeat_record = RepeatRecord(
+        repeat_record = SQLRepeatRecord(
             domain=self.domain,
             payload_id='abc123',
             registered_at=datetime.utcnow(),
             repeater_id=self.repeater.repeater_id,
-            failure_reason='test',
-            overall_tries=1,
-            max_possible_tries=1
+            state=State.Fail,
         )
 
-        _process_repeat_record(repeat_record)
+        with patch.object(SQLRepeatRecord, "num_attempts", 1), \
+                patch.object(repeat_record, "max_possible_tries", 1):
+            _process_repeat_record(repeat_record)
 
-        fetched_repeat_record = RepeatRecord.get(repeat_record._id)
-        self.assertTrue(fetched_repeat_record.cancelled)
+        fetched_repeat_record = SQLRepeatRecord.objects.get(id=repeat_record.id)
+        self.assertEqual(fetched_repeat_record.state, State.Cancelled)
         self.assertEqual(self.mock_fire.call_count, 0)
         self.assertEqual(self.mock_postpone_by.call_count, 0)
 
@@ -214,7 +201,7 @@ class TestProcessRepeatRecord(TestCase):
             is_deleted=True
         )
 
-        repeat_record = RepeatRecord(
+        repeat_record = SQLRepeatRecord(
             domain=self.domain,
             payload_id='abc123',
             registered_at=datetime.utcnow(),
@@ -223,9 +210,9 @@ class TestProcessRepeatRecord(TestCase):
 
         _process_repeat_record(repeat_record)
 
-        fetched_repeat_record = RepeatRecord.get(repeat_record._id)
+        fetched_repeat_record = repeat_record._migration_get_couch_object()
         self.assertEqual(fetched_repeat_record.doc_type, 'RepeatRecord-Deleted')
-        self.assertTrue(fetched_repeat_record.cancelled)
+        self.assertEqual(fetched_repeat_record.state, State.Cancelled)
         self.assertEqual(self.mock_fire.call_count, 0)
         self.assertEqual(self.mock_postpone_by.call_count, 0)
 
@@ -236,7 +223,7 @@ class TestProcessRepeatRecord(TestCase):
             is_paused=True
         )
 
-        repeat_record = RepeatRecord(
+        repeat_record = SQLRepeatRecord(
             domain=self.domain,
             payload_id='abc123',
             registered_at=datetime.utcnow(),
@@ -255,7 +242,7 @@ class TestProcessRepeatRecord(TestCase):
             is_paused=False
         )
 
-        repeat_record = RepeatRecord(
+        repeat_record = SQLRepeatRecord(
             domain=self.domain,
             payload_id='abc123',
             registered_at=datetime.utcnow(),
@@ -275,7 +262,7 @@ class TestProcessRepeatRecord(TestCase):
             is_deleted=True,
         )
 
-        repeat_record = RepeatRecord(
+        repeat_record = SQLRepeatRecord(
             domain=self.domain,
             payload_id='abc123',
             registered_at=datetime.utcnow(),
@@ -300,16 +287,17 @@ class TestProcessRepeatRecord(TestCase):
             domain=cls.domain,
             connection_settings=cls.conn_settings,
         )
+        cls.addClassCleanup(delete_all_repeat_records)
 
     def setUp(self):
         self.patch()
 
     def patch(self):
-        patch_fire = patch.object(RepeatRecord, 'fire')
+        patch_fire = patch.object(SQLRepeatRecord, 'fire')
         self.mock_fire = patch_fire.start()
         self.addCleanup(patch_fire.stop)
 
-        patch_postpone_by = patch.object(RepeatRecord, 'postpone_by')
+        patch_postpone_by = patch.object(SQLRepeatRecord, 'postpone_by')
         self.mock_postpone_by = patch_postpone_by.start()
         self.addCleanup(patch_postpone_by.stop)
 

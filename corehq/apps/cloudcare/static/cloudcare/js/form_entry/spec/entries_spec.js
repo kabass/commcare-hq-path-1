@@ -1,25 +1,44 @@
+'use strict';
 /* eslint-env mocha */
-/* globals moment */
-hqDefine("cloudcare/js/form_entry/spec/entries_spec", function () {
+hqDefine("cloudcare/js/form_entry/spec/entries_spec", [
+    "underscore",
+    "sinon/pkg/sinon",
+    "moment",
+    "hqwebapp/js/initial_page_data",
+    "cloudcare/js/form_entry/const",
+    "cloudcare/js/form_entry/entries",
+    "cloudcare/js/form_entry/form_ui",
+    "cloudcare/js/utils",
+], function (
+    _,
+    sinon,
+    moment,
+    initialPageData,
+    constants,
+    entries,
+    formUI,
+    utils
+) {
     describe('Entries', function () {
-        var constants = hqImport("cloudcare/js/form_entry/const"),
-            entries = hqImport("cloudcare/js/form_entry/entries"),
-            formUI = hqImport("cloudcare/js/form_entry/form_ui"),
-            utils = hqImport("cloudcare/js/utils"),
-            questionJSON,
+        var questionJSON,
             spy;
 
         before(function () {
-            hqImport("hqwebapp/js/initial_page_data").register(
+            initialPageData.register(
                 "has_geocoder_privs",
                 true
             );
-            hqImport("hqwebapp/js/initial_page_data").register(
+            initialPageData.register(
                 "toggles_dict",
                 {
                     WEB_APPS_UPLOAD_QUESTIONS: true,
+                    WEB_APPS_ANCHORED_SUBMIT: false,
                 }
             );
+        });
+
+        after(function () {
+            initialPageData.unregister("toggles_dict");
         });
 
         beforeEach(function () {
@@ -85,6 +104,7 @@ hqDefine("cloudcare/js/form_entry/spec/entries_spec", function () {
                 id: 2,
             }]);
 
+            assert.equal(entry.placeholderText, 'Please choose an item');
             entry.rawAnswer(1);
             this.clock.tick(1000);
             assert.isTrue(spy.calledOnce);
@@ -93,6 +113,31 @@ hqDefine("cloudcare/js/form_entry/spec/entries_spec", function () {
             entry.rawAnswer(2);
             this.clock.tick(1000);
             assert.isTrue(spy.calledTwice);
+        });
+
+        it('Should return MultiDropdownEntry', function () {
+            var entry;
+
+            questionJSON.datatype = constants.MULTI_SELECT;
+            questionJSON.style = { raw: constants.MINIMAL};
+            questionJSON.choices = ['a', 'b'];
+            questionJSON.answer = [1, 2]; // answer is based on a 1 indexed index of the choices
+
+            entry = formUI.Question(questionJSON).entry;
+            assert.isTrue(entry instanceof entries.MultiDropdownEntry);
+            assert.equal(entry.templateType, 'multidropdown');
+            assert.equal(entry.placeholderText, 'Please choose an item');
+
+            assert.isTrue(entry instanceof entries.MultiSelectEntry);
+            assert.sameMembers(entry.answer(), [1, 2]);
+            assert.sameMembers(entry.rawAnswer(), ['a', 'b']);
+
+            entry.answer([1]);
+            entry.choices(['a', 'c']);
+            this.clock.tick(1000);
+            assert.equal(spy.calledOnce, true);
+            assert.equal(entry.rawAnswer()[0], 'a');
+            assert.equal(entry.answer()[0], 1);
         });
 
         it('Should retain Dropdown value on options change', function () {
@@ -220,9 +265,13 @@ hqDefine("cloudcare/js/form_entry/spec/entries_spec", function () {
 
         it('Should return FreeTextEntry', function () {
             questionJSON.datatype = constants.STRING;
+            questionJSON.style.raw = 'hint-as-placeholder';
+            questionJSON.hint = 'this is a hint';
             var entry = formUI.Question(questionJSON).entry;
+            entry.setPlaceHolder(entry.useHintAsPlaceHolder());
             assert.isTrue(entry instanceof entries.FreeTextEntry);
             assert.equal(entry.templateType, 'text');
+            assert.equal(entry.placeholderText, 'this is a hint');
 
             entry.answer('harry');
             this.clock.tick(1000);
@@ -321,6 +370,38 @@ hqDefine("cloudcare/js/form_entry/spec/entries_spec", function () {
             assert.isTrue(spy.calledOnce);
             assert.isNull(entry.answer());
             assert.isNull(entry.rawAnswer());
+        });
+
+        it('Should return ButtonSelectEntry', function () {
+            questionJSON.datatype = constants.SELECT;
+            questionJSON.style = { raw: constants.BUTTON_SELECT };
+            questionJSON.choices = ['a', 'b'];
+            questionJSON.answer = 1;
+
+            var entry = formUI.Question(questionJSON).entry;
+            assert.isTrue(entry instanceof entries.ButtonSelectEntry);
+            assert.equal(entry.templateType, 'button');
+            assert.equal(entry.rawAnswer(), 'a');
+        });
+
+        it('Should cycle through ButtonSelect choices on click', function () {
+            questionJSON.datatype = constants.SELECT;
+            questionJSON.style = { raw: constants.BUTTON_SELECT };
+            questionJSON.choices = ['a', 'b', 'c'];
+            questionJSON.answer = 1;
+
+            var entry = formUI.Question(questionJSON).entry;
+            // value 'a' shows label 'b' to indicate what will be selected when clicked
+            assert.equal(entry.rawAnswer(), 'a');
+            assert.equal(entry.buttonLabel(), 'b');
+
+            entry.onClick();
+            assert.equal(entry.rawAnswer(), 'b');
+            assert.equal(entry.buttonLabel(), 'c');
+
+            entry.onClick();
+            assert.equal(entry.rawAnswer(), 'c');
+            assert.equal(entry.buttonLabel(), 'a');
         });
 
         it('Should return DateEntry', function () {

@@ -644,6 +644,23 @@ msgstr ""
 msgid "Unrecognized value"
 msgstr ""
 
+#: corehq/apps/app_manager/static/app_manager/js/forms/form_workflow.js
+msgid "Manual Linking Datums"
+msgstr ""
+
+#: corehq/apps/app_manager/static/app_manager/js/forms/form_workflow.js
+msgid "Set datums required to navigate to the selected form or menu"
+msgstr ""
+
+#: corehq/apps/app_manager/static/app_manager/js/forms/form_workflow.js
+msgid "Datum ID"
+msgstr ""
+
+#: corehq/apps/app_manager/static/app_manager/js/forms/form_workflow.js
+#: corehq/apps/app_manager/static/app_manager/js/vellum/src/main-components.js
+msgid "XPath Expression"
+msgstr ""
+
 #: corehq/apps/app_manager/static/app_manager/js/manage_releases_by_app_profile.js
 msgid "Active"
 msgstr ""
@@ -1279,7 +1296,6 @@ msgid "Phone Number or Numeric ID"
 msgstr ""
 
 #: corehq/apps/app_manager/static/app_manager/js/vellum/src/main-components.js
-#: corehq/apps/cloudcare/static/cloudcare/js/form_entry/entries.js
 #: corehq/motech/static/motech/js/connection_settings_detail.js
 msgid "Password"
 msgstr ""
@@ -1324,6 +1340,10 @@ msgid ""
 msgstr ""
 
 #: corehq/apps/app_manager/static/app_manager/js/vellum/src/main-components.js
+msgid "Micro-Image"
+msgstr ""
+
+#: corehq/apps/app_manager/static/app_manager/js/vellum/src/main-components.js
 msgid "Video Capture"
 msgstr ""
 
@@ -1353,7 +1373,6 @@ msgid "Long"
 msgstr ""
 
 #: corehq/apps/app_manager/static/app_manager/js/vellum/src/main-components.js
-#: corehq/apps/cloudcare/static/cloudcare/js/form_entry/entries.js
 msgid "Decimal"
 msgstr ""
 
@@ -1512,10 +1531,6 @@ msgid ""
 msgstr ""
 
 #: corehq/apps/app_manager/static/app_manager/js/vellum/src/main-components.js
-msgid "XPath Expression"
-msgstr ""
-
-#: corehq/apps/app_manager/static/app_manager/js/vellum/src/main-components.js
 msgid "You can drag a question into the box."
 msgstr ""
 
@@ -1644,16 +1659,15 @@ msgid "Form has validation errors."
 msgstr ""
 
 #: corehq/apps/app_manager/static/app_manager/js/vellum/src/main-components.js
-#: corehq/apps/cloudcare/static/cloudcare/js/form_entry/entries.js
+msgid "Multimedia Capture"
+msgstr ""
+
+#: corehq/apps/app_manager/static/app_manager/js/vellum/src/main-components.js
 msgid "Number"
 msgstr ""
 
 #: corehq/apps/app_manager/static/app_manager/js/vellum/src/main-components.js
 msgid "Groups"
-msgstr ""
-
-#: corehq/apps/app_manager/static/app_manager/js/vellum/src/main-components.js
-msgid "Multimedia Capture"
 msgstr ""
 
 #: corehq/apps/app_manager/static/app_manager/js/vellum/src/main-components.js
@@ -1989,6 +2003,7 @@ msgstr ""
 
 #: corehq/apps/app_manager/static/app_manager/js/vellum/src/main-components.js
 #: corehq/apps/cloudcare/static/cloudcare/js/formplayer/menus/api.js
+#: corehq/apps/cloudcare/static/cloudcare/js/utils.js
 #: corehq/apps/reports/static/reports/js/project_health_dashboard.js
 msgid "Loading..."
 msgstr ""
@@ -2341,6 +2356,7 @@ msgstr ""
 
 #: corehq/apps/app_manager/static/app_manager/js/vellum/src/main-components.js
 #: corehq/apps/data_interfaces/static/data_interfaces/js/find_by_id.js
+#: corehq/apps/geospatial/static/geospatial/js/case_grouping_map.js
 msgid "Case ID"
 msgstr ""
 
@@ -2633,23 +2649,11 @@ msgid "Error evaluating expression."
 msgstr ""
 
 #: corehq/apps/cloudcare/static/cloudcare/js/form_entry/entries.js
-msgid "Barcode"
-msgstr ""
-
-#: corehq/apps/cloudcare/static/cloudcare/js/form_entry/entries.js
-msgid "Free response"
-msgstr ""
-
-#: corehq/apps/cloudcare/static/cloudcare/js/form_entry/entries.js
 msgid "Not a valid whole number"
 msgstr ""
 
 #: corehq/apps/cloudcare/static/cloudcare/js/form_entry/entries.js
 msgid "Number is too large"
-msgstr ""
-
-#: corehq/apps/cloudcare/static/cloudcare/js/form_entry/entries.js
-msgid "Phone number or Numeric ID"
 msgstr ""
 
 #: corehq/apps/cloudcare/static/cloudcare/js/form_entry/entries.js
@@ -2661,19 +2665,7 @@ msgid "Please choose an item"
 msgstr ""
 
 #: corehq/apps/cloudcare/static/cloudcare/js/form_entry/entries.js
-msgid "Combobox"
-msgstr ""
-
-#: corehq/apps/cloudcare/static/cloudcare/js/form_entry/entries.js
 msgid "Not a valid choice"
-msgstr ""
-
-#: corehq/apps/cloudcare/static/cloudcare/js/form_entry/entries.js
-msgid "12-hour clock"
-msgstr ""
-
-#: corehq/apps/cloudcare/static/cloudcare/js/form_entry/entries.js
-msgid "24-hour clock"
 msgstr ""
 
 #: corehq/apps/cloudcare/static/cloudcare/js/form_entry/entries.js
@@ -2684,22 +2676,6 @@ msgstr ""
 msgid ""
 "The file you selected exceeds the size limit of 4MB. Please select a file "
 "that is smaller than 4MB."
-msgstr ""
-
-#: corehq/apps/cloudcare/static/cloudcare/js/form_entry/entries.js
-msgid "Upload image"
-msgstr ""
-
-#: corehq/apps/cloudcare/static/cloudcare/js/form_entry/entries.js
-msgid "Upload audio file"
-msgstr ""
-
-#: corehq/apps/cloudcare/static/cloudcare/js/form_entry/entries.js
-msgid "Upload video file"
-msgstr ""
-
-#: corehq/apps/cloudcare/static/cloudcare/js/form_entry/entries.js
-msgid "Draw signature"
 msgstr ""
 
 #: corehq/apps/cloudcare/static/cloudcare/js/form_entry/entries.js
@@ -2728,8 +2704,8 @@ msgstr ""
 
 #: corehq/apps/cloudcare/static/cloudcare/js/form_entry/errors.js
 msgid ""
-"CommCareHQ has detected a possible network connectivity problem. Please make "
-"sure you are connected to the Internet in order to submit your form."
+"CommCare HQ has detected a possible network connectivity problem. Please "
+"make sure you are connected to the Internet in order to submit your form."
 msgstr ""
 
 #: corehq/apps/cloudcare/static/cloudcare/js/form_entry/errors.js
@@ -2745,11 +2721,11 @@ msgid ""
 msgstr ""
 
 #: corehq/apps/cloudcare/static/cloudcare/js/form_entry/form_ui.js
-msgid "Submitting..."
+msgid "Submit"
 msgstr ""
 
 #: corehq/apps/cloudcare/static/cloudcare/js/form_entry/form_ui.js
-msgid "Submit"
+msgid "Submitting..."
 msgstr ""
 
 #: corehq/apps/cloudcare/static/cloudcare/js/form_entry/form_ui.js
@@ -2848,18 +2824,21 @@ msgid "Please perform a search."
 msgstr ""
 
 #: corehq/apps/cloudcare/static/cloudcare/js/formplayer/menus/views.js
+msgid "Show Map"
+msgstr ""
+
+#: corehq/apps/cloudcare/static/cloudcare/js/formplayer/menus/views.js
+msgid "Hide Map"
+msgstr ""
+
+#: corehq/apps/cloudcare/static/cloudcare/js/formplayer/menus/views.js
 msgid ""
-"You have selected more than the maximum selection limit of <%= value %> . "
+"You have selected more than the maximum selection limit of <%- value %> . "
 "Please uncheck some values to continue."
 msgstr ""
 
 #: corehq/apps/cloudcare/static/cloudcare/js/formplayer/menus/views.js
 msgid "Your location"
-msgstr ""
-
-#: corehq/apps/cloudcare/static/cloudcare/js/formplayer/menus/views.js
-#: corehq/apps/cloudcare/static/cloudcare/js/formplayer/sessions/views.js
-msgid "Page <%-num%>"
 msgstr ""
 
 #: corehq/apps/cloudcare/static/cloudcare/js/formplayer/menus/views/query.js
@@ -2880,12 +2859,16 @@ msgstr ""
 msgid "Please check the following fields:"
 msgstr ""
 
+#: corehq/apps/cloudcare/static/cloudcare/js/formplayer/sessions/api.js
+msgid "Unable to delete incomplete form '<%- title %>'"
+msgstr ""
+
 #: corehq/apps/cloudcare/static/cloudcare/js/formplayer/sessions/views.js
 msgid "Delete incomplete form?"
 msgstr ""
 
 #: corehq/apps/cloudcare/static/cloudcare/js/formplayer/sessions/views.js
-msgid "Are you sure you want to delete '"
+msgid "Are you sure you want to delete '<%- title %>'?"
 msgstr ""
 
 #: corehq/apps/cloudcare/static/cloudcare/js/formplayer/sessions/views.js
@@ -2909,19 +2892,19 @@ msgid "Use <%- username %>."
 msgstr ""
 
 #: corehq/apps/cloudcare/static/cloudcare/js/formplayer/users/views.js
-msgid "Log in as <%= username %>?"
+msgid "Log in as <%- username %>?"
 msgstr ""
 
 #: corehq/apps/cloudcare/static/cloudcare/js/formplayer/users/views.js
 msgid "Yes, log in as this user"
 msgstr ""
 
-#: corehq/apps/cloudcare/static/cloudcare/js/formplayer/users/views.js
-msgid "Page <%- num %>"
+#: corehq/apps/cloudcare/static/cloudcare/js/formplayer/utils/utils.js
+msgid "Confirm?"
 msgstr ""
 
 #: corehq/apps/cloudcare/static/cloudcare/js/formplayer/utils/utils.js
-msgid "Confirm?"
+msgid "Page <%- num %>"
 msgstr ""
 
 #: corehq/apps/cloudcare/static/cloudcare/js/utils.js
@@ -3054,6 +3037,10 @@ msgid ""
 "try again in a little bit."
 msgstr ""
 
+#: corehq/apps/commtrack/static/commtrack/js/products_and_programs_main.js
+msgid "Could not <%= action %> product. Please try again later."
+msgstr ""
+
 #: corehq/apps/custom_data_fields/static/custom_data_fields/js/custom_data_fields.js
 msgid "Edit Profile"
 msgstr ""
@@ -3148,8 +3135,8 @@ msgstr ""
 
 #: corehq/apps/data_interfaces/static/data_interfaces/js/find_by_id.js
 msgid ""
-"<a href='<%- link %>' target='_blank'>View <i class='fa fa-external-link'></"
-"i></a>"
+"<a href='<%- link %>' target='_blank'>View <i class='fa-solid fa-up-right-"
+"from-square'></i></a>"
 msgstr ""
 
 #: corehq/apps/data_interfaces/static/data_interfaces/js/find_by_id.js
@@ -3400,6 +3387,10 @@ msgid "Excel 2007+"
 msgstr ""
 
 #: corehq/apps/export/static/export/js/models.js
+msgid "GeoJSON"
+msgstr ""
+
+#: corehq/apps/export/static/export/js/models.js
 msgid "Private"
 msgstr ""
 
@@ -3435,11 +3426,35 @@ msgid "No group"
 msgstr ""
 
 #: corehq/apps/geospatial/static/geospatial/js/case_grouping_map.js
+msgid "Group ID"
+msgstr ""
+
+#: corehq/apps/geospatial/static/geospatial/js/case_grouping_map.js
+msgid "Group Name"
+msgstr ""
+
+#: corehq/apps/geospatial/static/geospatial/js/case_grouping_map.js
+msgid "Group Center Coordinates"
+msgstr ""
+
+#: corehq/apps/geospatial/static/geospatial/js/case_grouping_map.js
+msgid "Case Name"
+msgstr ""
+
+#: corehq/apps/geospatial/static/geospatial/js/case_grouping_map.js
+msgid "Case Owner Name"
+msgstr ""
+
+#: corehq/apps/geospatial/static/geospatial/js/case_grouping_map.js
+msgid "Case Coordinates"
+msgstr ""
+
+#: corehq/apps/geospatial/static/geospatial/js/case_grouping_map.js
 msgid "Select group"
 msgstr ""
 
 #: corehq/apps/geospatial/static/geospatial/js/case_grouping_map.js
-msgid "Group <%- groupCount %>"
+msgid "Group <%- pageNumber %>-<%- groupCount %>"
 msgstr ""
 
 #: corehq/apps/geospatial/static/geospatial/js/case_grouping_map.js
@@ -3448,16 +3463,42 @@ msgid ""
 "will not be exported."
 msgstr ""
 
+#: corehq/apps/geospatial/static/geospatial/js/geo_config.js
+msgid "Token successfully verified!"
+msgstr ""
+
+#: corehq/apps/geospatial/static/geospatial/js/geo_config.js
+msgid ""
+"Invalid API token. Please verify that the token matches the one on your "
+"Mapbox account and has the correct scope configured."
+msgstr ""
+
 #: corehq/apps/geospatial/static/geospatial/js/geospatial_map.js
 msgid "Name of the Area"
+msgstr ""
+
+#: corehq/apps/geospatial/static/geospatial/js/geospatial_map.js
+msgid ""
+"Oops! Something went wrong! Please check that your geospatial settings are "
+"configured correctly or contact admin if the problem persists."
 msgstr ""
 
 #: corehq/apps/geospatial/static/geospatial/js/geospatial_map.js
 msgid "All locations"
 msgstr ""
 
+#: corehq/apps/geospatial/static/geospatial/js/gps_capture.js
+msgid "current user"
+msgstr ""
+
 #: corehq/apps/geospatial/static/geospatial/js/models.js
 msgid "Mobile Worker"
+msgstr ""
+
+#: corehq/apps/geospatial/static/geospatial/js/models.js
+msgid ""
+"Warning! This action will clear the current disbursement. Please confirm if "
+"you want to proceed."
 msgstr ""
 
 #: corehq/apps/groups/static/groups/js/group_members.js
@@ -3553,6 +3594,15 @@ msgstr ""
 #: corehq/apps/hqwebapp/static/hqwebapp/js/bootstrap3/rollout_modal.js
 #: corehq/apps/hqwebapp/static/hqwebapp/js/bootstrap5/rollout_modal.js
 msgid "We could not turn off the new feature. Please try again later."
+msgstr ""
+
+#: corehq/apps/hqwebapp/static/hqwebapp/js/bootstrap3/validators.ko.js
+#: corehq/apps/hqwebapp/static/hqwebapp/js/bootstrap5/validators.ko.js
+msgid "Not a valid email"
+msgstr ""
+
+#: corehq/apps/hqwebapp/static/hqwebapp/js/bootstrap5/validators.ko.js
+msgid "Checking..."
 msgstr ""
 
 #: corehq/apps/hqwebapp/static/hqwebapp/js/components/inline_edit.js
@@ -3666,10 +3716,6 @@ msgstr ""
 #: corehq/apps/hqwebapp/static/hqwebapp/js/ui_elements/bootstrap3/ui-element-key-val-mapping.js
 #: corehq/apps/hqwebapp/static/hqwebapp/js/ui_elements/bootstrap5/ui-element-key-val-mapping.js
 msgid "Edit mapping for \"<%- property %>\""
-msgstr ""
-
-#: corehq/apps/hqwebapp/static/hqwebapp/js/validators.ko.js
-msgid "Not a valid email"
 msgstr ""
 
 #: corehq/apps/integration/static/integration/js/dialer/connect-streams-min.js
@@ -3794,11 +3840,40 @@ msgstr ""
 msgid "Choose a primary location"
 msgstr ""
 
+#: corehq/apps/registration/static/registration/js/bootstrap3/password.js
+#: corehq/apps/registration/static/registration/js/bootstrap5/password.js
+#: corehq/apps/registration/static/registration/js/new_user.ko.js
+msgid "Password must have at least <%- passwordLength %> characters."
+msgstr ""
+
+#: corehq/apps/registration/static/registration/js/bootstrap3/password.js
+#: corehq/apps/registration/static/registration/js/bootstrap5/password.js
+msgid ""
+"<i class='fa fa-warning'></i>This password is automatically generated. "
+"Please copy it or create your own. It will not be shown again."
+msgstr ""
+
+#: corehq/apps/registration/static/registration/js/bootstrap3/password.js
+#: corehq/apps/registration/static/registration/js/bootstrap5/password.js
+msgid "Your password is too weak! Try adding numbers or symbols!"
+msgstr ""
+
+#: corehq/apps/registration/static/registration/js/bootstrap3/password.js
+#: corehq/apps/registration/static/registration/js/bootstrap5/password.js
+msgid "Your password is almost strong enough! Try adding numbers or symbols!"
+msgstr ""
+
+#: corehq/apps/registration/static/registration/js/bootstrap3/password.js
+#: corehq/apps/registration/static/registration/js/bootstrap5/password.js
+msgid "Good Job! Your password is strong!"
+msgstr ""
+
 #: corehq/apps/registration/static/registration/js/new_user.ko.js
 msgid "Please enter your name."
 msgstr ""
 
 #: corehq/apps/registration/static/registration/js/new_user.ko.js
+#: corehq/apps/styleguide/static/styleguide/js_examples/crispy_forms_knockout_validation.js
 #: corehq/apps/users/static/users/js/invite_web_user.js
 msgid "Please specify an email."
 msgstr ""
@@ -3808,12 +3883,8 @@ msgid "Checking email..."
 msgstr ""
 
 #: corehq/apps/registration/static/registration/js/new_user.ko.js
+#: corehq/apps/styleguide/static/styleguide/js_examples/crispy_forms_knockout_validation.js
 msgid "Please specify a password."
-msgstr ""
-
-#: corehq/apps/registration/static/registration/js/new_user.ko.js
-#: corehq/apps/registration/static/registration/js/password.js
-msgid "Password must have at least <%- passwordLength %> characters."
 msgstr ""
 
 #: corehq/apps/registration/static/registration/js/new_user.ko.js
@@ -3822,24 +3893,6 @@ msgstr ""
 
 #: corehq/apps/registration/static/registration/js/new_user.ko.js
 msgid "Please specify."
-msgstr ""
-
-#: corehq/apps/registration/static/registration/js/password.js
-msgid ""
-"<i class='fa fa-warning'></i>This password is automatically generated. "
-"Please copy it or create your own. It will not be shown again."
-msgstr ""
-
-#: corehq/apps/registration/static/registration/js/password.js
-msgid "Your password is too weak! Try adding numbers or symbols!"
-msgstr ""
-
-#: corehq/apps/registration/static/registration/js/password.js
-msgid "Your password is almost strong enough! Try adding numbers or symbols!"
-msgstr ""
-
-#: corehq/apps/registration/static/registration/js/password.js
-msgid "Good Job! Your password is strong!"
 msgstr ""
 
 #: corehq/apps/registry/static/registry/js/registry_actions.js
@@ -3903,11 +3956,11 @@ msgid "fa-ban"
 msgstr ""
 
 #: corehq/apps/registry/static/registry/js/registry_text.js
-msgid "fa-clock-o"
+msgid "fa-regular fa-clock"
 msgstr ""
 
 #: corehq/apps/registry/static/registry/js/registry_text.js
-msgid "fa-check-circle-o"
+msgid "fa-regular fa-circle-check"
 msgstr ""
 
 #: corehq/apps/registry/static/registry/js/registry_text.js
@@ -4111,6 +4164,10 @@ msgid "Your search term was too long. Please provide a shorter search filter"
 msgstr ""
 
 #: corehq/apps/reports/static/reports/js/reports.async.js
+msgid "Loading Stopped"
+msgstr ""
+
+#: corehq/apps/reports/static/reports/js/reports.async.js
 msgid "We were unsuccessful loading the report:"
 msgstr ""
 
@@ -4226,6 +4283,58 @@ msgstr ""
 
 #: corehq/apps/smsbillables/static/smsbillables/js/smsbillables.rate_calc.js
 msgid "Please Select a Country Code"
+msgstr ""
+
+#: corehq/apps/styleguide/static/styleguide/js_examples/crispy_forms_knockout.js
+msgid "Forms"
+msgstr ""
+
+#: corehq/apps/styleguide/static/styleguide/js_examples/crispy_forms_knockout.js
+msgid "Cases"
+msgstr ""
+
+#: corehq/apps/styleguide/static/styleguide/js_examples/crispy_forms_knockout.js
+msgid "Reports"
+msgstr ""
+
+#: corehq/apps/styleguide/static/styleguide/js_examples/crispy_forms_knockout.js
+msgid "App Builder"
+msgstr ""
+
+#: corehq/apps/styleguide/static/styleguide/js_examples/crispy_forms_knockout.js
+msgid "Thank you, "
+msgstr ""
+
+#: corehq/apps/styleguide/static/styleguide/js_examples/crispy_forms_knockout.js
+msgid "Submission has been cancelled."
+msgstr ""
+
+#: corehq/apps/styleguide/static/styleguide/js_examples/crispy_forms_knockout_validation.js
+msgid "Please specify a username."
+msgstr ""
+
+#: corehq/apps/styleguide/static/styleguide/js_examples/crispy_forms_knockout_validation.js
+msgid "Username must be at least three characters long."
+msgstr ""
+
+#: corehq/apps/styleguide/static/styleguide/js_examples/crispy_forms_knockout_validation.js
+msgid "Your password must be at least 6 characters long"
+msgstr ""
+
+#: corehq/apps/styleguide/static/styleguide/js_examples/crispy_forms_knockout_validation.js
+msgid "Resetting form..."
+msgstr ""
+
+#: corehq/apps/styleguide/static/styleguide/js_examples/multiselect_crispy.js
+msgid "Benched"
+msgstr ""
+
+#: corehq/apps/styleguide/static/styleguide/js_examples/multiselect_crispy.js
+msgid "Playing"
+msgstr ""
+
+#: corehq/apps/styleguide/static/styleguide/js_examples/multiselect_crispy.js
+msgid "Search Team..."
 msgstr ""
 
 #: corehq/apps/translations/static/translations/js/translations.js
@@ -4604,6 +4713,20 @@ msgstr ""
 
 #: corehq/apps/users/static/users/js/roles.js
 msgid "Edit Attendance Tracking Events"
+msgstr ""
+
+#: corehq/apps/users/static/users/js/roles.js
+msgid ""
+"<strong>CommCare Analytics</strong> &mdash; manage CommCare Analytics "
+"associated with this project"
+msgstr ""
+
+#: corehq/apps/users/static/users/js/roles.js
+msgid "Edit & View CommCare Analytics"
+msgstr ""
+
+#: corehq/apps/users/static/users/js/roles.js
+msgid "View-Only CommCare Analytics"
 msgstr ""
 
 #: corehq/apps/users/static/users/js/roles.js

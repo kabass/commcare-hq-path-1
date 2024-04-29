@@ -3,12 +3,14 @@ hqDefine("geospatial/js/geospatial_map", [
     "hqwebapp/js/initial_page_data",
     "knockout",
     'geospatial/js/models',
+    'hqwebapp/js/bootstrap3/alert_user',
     'select2/dist/js/select2.full.min',
 ], function (
     $,
     initialPageData,
     ko,
-    models
+    models,
+    alertUser
 ) {
     const caseMarkerColors = {
         'default': "#808080", // Gray
@@ -28,7 +30,6 @@ hqDefine("geospatial/js/geospatial_map", [
 
     var mapModel;
     var polygonFilterModel;
-    var missingGPSModelInstance;
 
     function showMapControls(state) {
         $("#geospatial-map").toggle(state);
@@ -74,6 +75,8 @@ hqDefine("geospatial/js/geospatial_map", [
         self.pollUrl = ko.observable('');
         self.isBusy = ko.observable(false);
 
+        self.hasMissingData = ko.observable(false);  // True if the user attemps disbursement with polygon filtering that includes no cases/users.
+
         self.setBusy = function (isBusy) {
             self.isBusy(isBusy);
             $("#hq-content *").prop("disabled", isBusy);
@@ -85,18 +88,19 @@ hqDefine("geospatial/js/geospatial_map", [
         };
 
         self.handleDisbursementResults = function (result) {
-            var groupId = 0;
+            // Clean stale disbursement results
+            mapModel.removeDisbursementLayers();
+
+            let groupId = 0;
             Object.keys(result).forEach((userId) => {
-                let user = mapModel.userMapItems().find((userModel) => {return userModel.itemId === userId;});
-                const userCoordString = user.itemData.coordinates['lng'] + " " + user.itemData.coordinates['lat'];
-                mapModel.caseGroupsIndex[userCoordString] = {groupId: groupId, item: user};
+                const user = mapModel.userMapItems().find((userModel) => {return userModel.itemId === userId;});
+                mapModel.caseGroupsIndex[userId] = {groupId: groupId, item: user};
 
                 let cases = [];
                 mapModel.caseMapItems().forEach((caseModel) => {
                     if (result[userId].includes(caseModel.itemId)) {
                         cases.push(caseModel);
-                        const coordString = caseModel.itemData.coordinates['lng'] + " " + caseModel.itemData.coordinates['lat'];
-                        mapModel.caseGroupsIndex[coordString] = {groupId: groupId, item: caseModel};
+                        mapModel.caseGroupsIndex[caseModel.itemId] = {groupId: groupId, item: caseModel};
                     }
                 });
                 connectUserWithCasesOnMap(user, cases);
@@ -146,6 +150,12 @@ hqDefine("geospatial/js/geospatial_map", [
                     } else {
                         self.handleDisbursementResults(ret['result']);
                     }
+                },
+                error: function () {
+                    alertUser.alert_user(
+                        gettext("Oops! Something went wrong! Please check that your geospatial settings are configured correctly or contact admin if the problem persists."), 'danger'
+                    );
+                    self.setBusy(false);
                 },
             });
         };
@@ -213,7 +223,7 @@ hqDefine("geospatial/js/geospatial_map", [
     };
 
     function initMap() {
-        mapModel = new models.Map();
+        mapModel = new models.Map(false, true);
         mapModel.initMap(MAP_CONTAINER_ID);
 
         let selectedCases = ko.computed(function () {
@@ -230,20 +240,23 @@ hqDefine("geospatial/js/geospatial_map", [
         ko.applyBindings({'userModels': mapModel.userMapItems, 'selectedUsers': selectedUsers}, $("#user-modals")[0]);
         ko.applyBindings({'caseModels': mapModel.caseMapItems, 'selectedCases': selectedCases}, $("#case-modals")[0]);
 
-        mapModel.mapInstance.on("draw.update", (e) => {
-            mapModel.selectAllMapItems(e.features);
-        });
-        mapModel.mapInstance.on('draw.selectionchange', (e) => {
-            mapModel.selectAllMapItems(e.features);
-        });
+        mapModel.mapInstance.on("draw.update", selectMapItemsInPolygons);
+        mapModel.mapInstance.on('draw.selectionchange', selectMapItemsInPolygons);
         mapModel.mapInstance.on('draw.delete', function () {
-            // TODO: Need to fix this
             polygonFilterModel.btnSaveDisabled(!mapModel.mapHasPolygons());
+            selectMapItemsInPolygons();
         });
         mapModel.mapInstance.on('draw.create', function () {
-            // TODO: Need to fix this
             polygonFilterModel.btnSaveDisabled(!mapModel.mapHasPolygons());
         });
+    }
+
+    function selectMapItemsInPolygons() {
+        let features = mapModel.drawControls.getAll().features;
+        if (polygonFilterModel.activeSavedPolygon) {
+            features = features.concat(polygonFilterModel.activeSavedPolygon.geoJson.features);
+        }
+        mapModel.selectAllMapItems(features);
     }
 
     function initPolygonFilters() {
@@ -272,8 +285,26 @@ hqDefine("geospatial/js/geospatial_map", [
 
         var $runDisbursement = $("#btnRunDisbursement");
         $runDisbursement.click(function () {
-            if (mapModel && mapModel.mapInstance) {
-                disbursementRunner.runCaseDisbursementAlgorithm(mapModel.caseMapItems(), mapModel.userMapItems());
+            $('#disbursement-clear-message').hide();
+            if (mapModel && mapModel.mapInstance && !polygonFilterModel.btnRunDisbursementDisabled()) {
+                let selectedCases = mapModel.caseMapItems();
+                let selectedUsers = mapModel.userMapItems();
+                if (mapModel.mapHasPolygons() || polygonFilterModel.activeSavedPolygon) {
+                    selectedCases = mapModel.caseMapItems().filter(function (caseItem) {
+                        return caseItem.isSelected();
+                    });
+                    selectedUsers = mapModel.userMapItems().filter((userItem) => {
+                        return userItem.isSelected();
+                    });
+                }
+
+                // User might do polygon filtering on an area with no cases/users. We should not do
+                // disbursement if this is the case
+                const hasValidData = selectedCases.length && selectedUsers.length;
+                disbursementRunner.hasMissingData(!hasValidData);
+                if (hasValidData) {
+                    disbursementRunner.runCaseDisbursementAlgorithm(selectedCases, selectedUsers);
+                }
             }
         });
     }
@@ -293,7 +324,6 @@ hqDefine("geospatial/js/geospatial_map", [
             self.hasErrors(false);
             if (!self.shouldShowUsers()) {
                 self.hasFiltersChanged(false);
-                missingGPSModelInstance.usersWithoutGPS([]);
                 return;
             }
 
@@ -303,18 +333,7 @@ hqDefine("geospatial/js/geospatial_map", [
                 url: initialPageData.reverse('get_users_with_gps'),
                 success: function (data) {
                     self.hasFiltersChanged(false);
-
-                    // TODO: There is a lot of indexing happening here. This should be replaced with a mapping to make reading it more explicit
-                    const usersWithoutGPS = data.user_data.filter(function (item) {
-                        return item.gps_point === null || !item.gps_point.length;
-                    });
-                    missingGPSModelInstance.usersWithoutGPS(usersWithoutGPS);
-
-                    const usersWithGPS = data.user_data.filter(function (item) {
-                        return item.gps_point !== null && item.gps_point.length;
-                    });
-
-                    const userData = _.object(_.map(usersWithGPS, function (userData) {
+                    const userData = _.object(_.map(data.user_data, function (userData) {
                         const gpsData = (userData.gps_point) ? userData.gps_point.split(' ') : [];
                         const lat = parseFloat(gpsData[0]);
                         const lng = parseFloat(gpsData[1]);
@@ -393,19 +412,6 @@ hqDefine("geospatial/js/geospatial_map", [
         }));
         const caseMapItems = mapModel.addMarkersToMap(casesById, caseMarkerColors);
         mapModel.caseMapItems(caseMapItems);
-
-        var $missingCasesDiv = $("#missing-gps-cases");
-        var casesWithoutGPS = caseData.filter(function (item) {
-            return item[1] === null;
-        });
-        casesWithoutGPS = _.map(casesWithoutGPS, function (item) {return {"link": item[2]};});
-        // Don't re-apply if this is the next page of the pagination
-        if (ko.dataFor($missingCasesDiv[0]) === undefined) {
-            $missingCasesDiv.koApplyBindings(missingGPSModelInstance);
-            missingGPSModelInstance.casesWithoutGPS(casesWithoutGPS);
-        }
-        missingGPSModelInstance.casesWithoutGPS(casesWithoutGPS);
-
         mapModel.fitMapBounds(caseMapItems);
     }
 
@@ -425,10 +431,10 @@ hqDefine("geospatial/js/geospatial_map", [
             initUserFilters();
             // Hide controls until data is displayed
             showMapControls(false);
-            missingGPSModelInstance = new models.MissingGPSModel();
 
             disbursementRunner = new disbursementRunnerModel();
             $("#disbursement-spinner").koApplyBindings(disbursementRunner);
+            $("#disbursement-error").koApplyBindings(disbursementRunner);
 
             return;
         }

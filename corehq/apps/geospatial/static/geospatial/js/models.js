@@ -1,18 +1,21 @@
+'use strict';
 hqDefine('geospatial/js/models', [
     'jquery',
     'knockout',
+    'underscore',
     'hqwebapp/js/initial_page_data',
     'geospatial/js/utils',
 ], function (
     $,
     ko,
+    _,
     initialPageData,
     utils
 ) {
-    const HOVER_DELAY = 400;
     const DOWNPLAY_OPACITY = 0.2;
     const FEATURE_QUERY_PARAM = 'features';
     const DEFAULT_CENTER_COORD = [-20.0, -0.0];
+    const DISBURSEMENT_LAYER_PREFIX = 'route-';
 
     var MissingGPSModel = function () {
         this.casesWithoutGPS = ko.observable([]);
@@ -27,7 +30,6 @@ hqDefine('geospatial/js/models', [
     };
 
     var MapItem = function (itemId, itemData, marker, markerColors) {
-        'use strict';
         var self = this;
         self.itemId = itemId;
         self.itemData = itemData;
@@ -40,8 +42,9 @@ hqDefine('geospatial/js/models', [
         self.groupCoordinates = null;
 
         self.setMarkerOpacity = function (opacity) {
-            let element = self.marker.getElement();
-            element.style.opacity = opacity;
+            const element = self.marker.getElement();
+            const svg = element.getElementsByTagName("svg")[0];
+            svg.setAttribute("opacity", opacity);
         };
 
         function changeMarkerColor(selectedCase, newColor) {
@@ -80,15 +83,19 @@ hqDefine('geospatial/js/models', [
                 'groupId': self.groupId,
                 'groupCenterCoordinates': groupCoordinates,
                 'caseId': self.itemId,
+                'caseName': self.itemData.case_name,
+                'owner_id': self.itemData.owner_id,
+                'owner_name': self.itemData.owner_name,
                 'coordinates': coordinates,
             };
         };
     };
 
-    var Map = function (usesClusters) {
+    var Map = function (usesClusters, usesStreetsLayers) {
         var self = this;
 
         self.usesClusters = usesClusters;
+        self.usesStreetsLayers = usesStreetsLayers;
 
         self.mapInstance;
         self.drawControls;
@@ -126,10 +133,127 @@ hqDefine('geospatial/js/models', [
             if (self.usesClusters) {
                 createClusterLayers();
             }
+
+            if (self.usesStreetsLayers) {
+                loadMapBoxStreetsLayers();
+                addLayersToPanel();
+            }
         };
 
+        function loadMapBoxStreetsLayers() {
+            self.mapInstance.on('load', () => {
+                self.mapInstance.addSource('mapbox-streets', {
+                    type: 'vector',
+                    url: 'mapbox://mapbox.mapbox-streets-v8',
+                });
+
+                self.mapInstance.addLayer({
+                    id: 'Landuse',
+                    source: 'mapbox-streets',
+                    'source-layer': 'landuse',
+                    type: 'line',
+                    paint: {
+                        'line-color': '#695447', // brown land color
+                    },
+                    layout: {
+                        'visibility': 'none',
+                    },
+                });
+                self.mapInstance.addLayer({
+                    id: 'Road',
+                    source: 'mapbox-streets',
+                    'source-layer': 'road',
+                    type: 'line',
+                    paint: {
+                        'line-color': '#000000', // black
+                    },
+                    layout: {
+                        'visibility': 'none',
+                    },
+                });
+                self.mapInstance.addLayer({
+                    id: 'Admin',
+                    source: 'mapbox-streets',
+                    'source-layer': 'admin',
+                    type: 'line',
+                    paint: {
+                        'line-color': '#800080', // purple
+                    },
+                    layout: {
+                        'visibility': 'none',
+                    },
+                });
+                self.mapInstance.addLayer({
+                    id: 'Building',
+                    source: 'mapbox-streets',
+                    'source-layer': 'building',
+                    type: 'fill',
+                    paint: {
+                        'fill-color': '#808080', // grey
+                    },
+                    layout: {
+                        'visibility': 'none',
+                    },
+                });
+                self.mapInstance.addLayer({
+                    id: 'Waterway',
+                    source: 'mapbox-streets',
+                    'source-layer': 'waterway',
+                    type: 'line',
+                    paint: {
+                        'line-color': '#00008b', // darkblue
+                    },
+                    layout: {
+                        'visibility': 'none',
+                    },
+                });
+            });
+        }
+
+        function addLayersToPanel() {
+            self.mapInstance.on('idle', () => {
+                const toggleableLayerIds = [
+                    'Landuse',
+                    'Admin',
+                    'Road',
+                    'Building',
+                    'Waterway',
+                ];
+                const menuElement = document.getElementById('layer-toggle-menu');
+                for (const layerId of toggleableLayerIds) {
+                    // Skip if layer doesn't exist or button is already present
+                    if (!self.mapInstance.getLayer(layerId) || document.getElementById(layerId)) {
+                        continue;
+                    }
+
+                    const link = document.createElement('a');
+                    link.id = layerId;
+                    link.role = 'button';
+                    link.href = '#';
+                    link.textContent = layerId;
+                    link.className = 'btn btn-secondary';
+                    link.onclick = function (e) {
+                        const clickedLayer = this.textContent;
+                        e.preventDefault();
+                        e.stopPropagation();
+
+                        const visibility = self.mapInstance.getLayoutProperty(clickedLayer, 'visibility');
+                        if (visibility === 'visible') {
+                            self.mapInstance.setLayoutProperty(clickedLayer, 'visibility', 'none');
+                            this.classList.remove('active');
+                        } else {
+                            this.classList.add('active');
+                            self.mapInstance.setLayoutProperty(clickedLayer, 'visibility', 'visible');
+                        }
+                    };
+
+                    menuElement.appendChild(link);
+                }
+                menuElement.classList.remove('hidden');
+            });
+        }
+
         function createClusterLayers() {
-            // const mapInstance = self.mapInstance;
             self.mapInstance.on('load', () => {
                 self.mapInstance.addSource('caseWithGPS', {
                     type: 'geojson',
@@ -220,35 +344,15 @@ hqDefine('geospatial/js/models', [
             // Add the marker to the map
             marker.addTo(self.mapInstance);
 
-            let popupDiv = document.createElement("div");
-            popupDiv.setAttribute("data-bind", "template: 'select-case'");
-
-            let popup = new mapboxgl.Popup({ offset: 25, anchor: "bottom" })  // eslint-disable-line no-undef
-                .setLngLat(coordinates)
-                .setDOMContent(popupDiv);
+            const popupDiv = document.createElement("div");
+            const popup = utils.createMapPopup(
+                coordinates,
+                popupDiv,
+                () => highlightMarkerGroup(itemId),
+                resetMarkersOpacity
+            );
 
             marker.setPopup(popup);
-
-            const markerDiv = marker.getElement();
-            // Show popup on hover
-            markerDiv.addEventListener('mouseenter', () => marker.togglePopup());
-            markerDiv.addEventListener('mouseenter', () => highlightMarkerGroup(marker));
-            markerDiv.addEventListener('mouseleave', () => resetMarkersOpacity());
-
-            // Hide popup if mouse leaves marker and popup
-            var addLeaveEvent = function (fromDiv, toDiv) {
-                fromDiv.addEventListener('mouseleave', function () {
-                    setTimeout(function () {
-                        if (!$(toDiv).is(':hover')) {
-                            // mouse left toDiv as well
-                            marker.togglePopup();
-                        }
-                    }, 100);
-                });
-            };
-            addLeaveEvent(markerDiv, popupDiv);
-            addLeaveEvent(popupDiv, markerDiv);
-
             const mapItemInstance = new MapItem(itemId, itemData, marker, colors);
             $(popupDiv).koApplyBindings(mapItemInstance);
 
@@ -269,14 +373,10 @@ hqDefine('geospatial/js/models', [
             changeMarkersOpacity(markers, 1);
         }
 
-        function highlightMarkerGroup(marker) {
-            const markerCoords = marker.getLngLat();
-            const currentMarkerPosition = markerCoords.lng + " " + markerCoords.lat;
-            const markerItem = self.caseGroupsIndex[currentMarkerPosition];
-
+        function highlightMarkerGroup(itemId) {
+            const markerItem = self.caseGroupsIndex[itemId];
             if (markerItem) {
                 const groupId = markerItem.groupId;
-
                 let markersToHide = [];
                 Object.keys(self.caseGroupsIndex).forEach(itemCoordinates => {
                     const mapMarkerItem = self.caseGroupsIndex[itemCoordinates];
@@ -294,39 +394,37 @@ hqDefine('geospatial/js/models', [
         }
 
         function changeMarkersOpacity(markers, opacity) {
-            // It's necessary to delay obscuring the markers since mapbox does not play nice
-            // if we try to do it all at once.
-            setTimeout(function () {
-                markers.forEach(marker => {
-                    marker.setMarkerOpacity(opacity);
-                });
-            }, HOVER_DELAY);
+            markers.forEach(marker => {
+                marker.setMarkerOpacity(opacity);
+            });
         }
 
         self.getLineFeatureId = function (itemId) {
-            return "route-" + itemId;
+            return DISBURSEMENT_LAYER_PREFIX + itemId;
         };
 
         self.selectAllMapItems = function (featuresArr) {
             // See https://github.com/mapbox/mapbox-gl-draw/blob/main/docs/API.md#drawselectionchange
-            if (!featuresArr.length) {
-                return;
+            for (const caseItem of self.caseMapItems()) {
+                self.selectMapItemInPolygons(featuresArr, caseItem);
             }
-
-            for (const feature of featuresArr) {
-                if (feature.geometry.type === 'Polygon') {
-                    self.selectMapItemsInPolygon(feature, self.caseMapItems());
-                    self.selectMapItemsInPolygon(feature, self.userMapItems());
-                }
+            for (const userItem of self.userMapItems()) {
+                self.selectMapItemInPolygons(featuresArr, userItem);
             }
         };
 
-        self.selectMapItemsInPolygon = function (polygonFeature, mapItems) {
-            _.values(mapItems).filter(function (mapItem) {
-                if (mapItem.itemData.coordinates) {
-                    mapItem.isSelected(isMapItemInPolygon(polygonFeature, mapItem.itemData.coordinates));
+        self.selectMapItemInPolygons = function (polygonArr, mapItem) {
+            let isSelected = false;
+            for (const polygon of polygonArr) {
+                if (polygon.geometry.type !== 'Polygon') {
+                    continue;
                 }
-            });
+                if (isMapItemInPolygon(polygon, mapItem.itemData.coordinates)) {
+                    isSelected = true;
+                    break;
+                }
+            }
+            mapItem.isSelected(isSelected);
         };
 
         function isMapItemInPolygon(polygonFeature, coordinates) {
@@ -377,6 +475,26 @@ hqDefine('geospatial/js/models', [
                 maxZoom: 10,  // 0-23
             });
         };
+
+        self.hasDisbursementLayers = function () {
+            const mapLayers = self.mapInstance.getStyle().layers;
+            return _.any(
+                mapLayers,
+                function (layer) { return layer.id.includes(DISBURSEMENT_LAYER_PREFIX); }
+            );
+        };
+
+        self.removeDisbursementLayers = function () {
+            const mapLayers = self.mapInstance.getStyle().layers;
+            let layerRemoved = false;
+            mapLayers.forEach(function (layer) {
+                if (layer.id.includes(DISBURSEMENT_LAYER_PREFIX)) {
+                    self.mapInstance.removeLayer(layer.id);
+                    layerRemoved = true;
+                }
+            });
+            return layerRemoved;
+        };
     };
 
     var PolygonFilter = function (mapObj, shouldUpdateQueryParam, shouldSelectAfterFilter) {
@@ -399,6 +517,8 @@ hqDefine('geospatial/js/models', [
 
         self.savedPolygons = ko.observableArray([]);
         self.selectedSavedPolygonId = ko.observable('');
+        self.oldSelectedSavedPolygonId = ko.observable('');
+        self.resettingSavedPolygon = false;
         self.activeSavedPolygon;
 
         self.addPolygonsToFilterList = function (featureList) {
@@ -480,7 +600,18 @@ hqDefine('geospatial/js/models', [
             }
         };
 
+        self.selectedSavedPolygonId.subscribe(function (selectedPolygonID) {
+            self.oldSelectedSavedPolygonId(selectedPolygonID);
+        }, null, "beforeChange");
+
         self.selectedSavedPolygonId.subscribe(() => {
+            // avoid running actions expected on user interactions if resetting saved polygon
+            // and update resettingSavedPolygon back to false
+            if (self.resettingSavedPolygon) {
+                self.resettingSavedPolygon = false;
+                return;
+            }
+
             const selectedId = parseInt(self.selectedSavedPolygonId());
             const polygonObj = self.savedPolygons().find(
                 function (o) { return o.id === selectedId; }
@@ -489,6 +620,24 @@ hqDefine('geospatial/js/models', [
                 return;
             }
 
+            // hide it by default and show it only if necessary
+            $('#disbursement-clear-message').hide();
+            if (mapObj.hasDisbursementLayers()) {
+                let confirmation = confirm(
+                    gettext("Warning! This action will clear the current disbursement. " +
+                            "Please confirm if you want to proceed.")
+                );
+                if (confirmation) {
+                    if (mapObj.removeDisbursementLayers()) {
+                        $('#disbursement-clear-message').show();
+                    }
+                } else {
+                    // set flag
+                    self.resettingSavedPolygon = true;
+                    self.selectedSavedPolygonId(self.oldSelectedSavedPolygonId());
+                    return;
+                }
+            }
             self.clearActivePolygon();
 
             removeActivePolygonLayer();
@@ -499,7 +648,8 @@ hqDefine('geospatial/js/models', [
             self.btnExportDisabled(false);
             self.btnSaveDisabled(true);
             if (self.shouldSelectAfterFilter) {
-                self.mapObj.selectAllMapItems(polygonObj.geoJson.features);
+                const features = polygonObj.geoJson.features.concat(mapObj.drawControls.getAll().features);
+                self.mapObj.selectAllMapItems(features);
             }
         });
 

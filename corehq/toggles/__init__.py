@@ -709,7 +709,7 @@ CASE_LIST_TILE = StaticToggle(
 
 CASE_LIST_TILE_CUSTOM = StaticToggle(
     'case_list_tile_custom',
-    'USH: Configure custom case list tile',
+    'USH: Configure custom case tile for case list and case detail',
     TAG_CUSTOM,
     [NAMESPACE_DOMAIN],
     help_link='https://confluence.dimagi.com/pages/viewpage.action?'
@@ -726,11 +726,32 @@ CASE_LIST_MAP = StaticToggle(
               'spaceKey=saas&title=Allow+Configuration+of+Case+List+Tiles',
 )
 
+CASE_LIST_LAZY = StaticToggle(
+    'case_list_lazy',
+    'USH: Add option to lazy load case list',
+    TAG_CUSTOM,
+    [NAMESPACE_DOMAIN],
+    help_link='https://confluence.dimagi.com/pages/viewpage.action?'
+              'spaceKey=saas&title=Allow+Configuration+of+Case+List+Lazy',
+)
+
 SHOW_PERSIST_CASE_CONTEXT_SETTING = StaticToggle(
     'show_persist_case_context_setting',
     'Allow toggling the persistent case context tile',
     TAG_SOLUTIONS_CONDITIONAL,
     [NAMESPACE_DOMAIN],
+)
+
+FORM_LINK_ADVANCED_MODE = StaticToggle(
+    'form_link_advanced_mode',
+    'USH: Form linking advanced mode',
+    TAG_CUSTOM,
+    [NAMESPACE_DOMAIN],
+    description=(
+        "Switches manual datum configuration for form linking to a UI where app "
+        "builders must specify the datum IDs to provide. Allows for linking to "
+        "more targets, but is way harder to use."
+    ),
 )
 
 CASE_LIST_LOOKUP = StaticToggle(
@@ -940,6 +961,13 @@ WEB_APPS_UPLOAD_QUESTIONS = FeatureRelease(
     owner='Jenny Schweers',
 )
 
+WEB_APPS_ANCHORED_SUBMIT = StaticToggle(
+    'web_apps_anchored_submit',
+    'USH: Keep submit button anchored at the bottom of screen for forms in Web Apps',
+    TAG_CUSTOM,
+    namespaces=[NAMESPACE_DOMAIN],
+)
+
 SYNC_SEARCH_CASE_CLAIM = StaticToggle(
     'search_claim',
     'Enable synchronous mobile searching and case claiming',
@@ -959,6 +987,19 @@ USH_CASE_LIST_MULTI_SELECT = StaticToggle(
     """
 )
 
+CASE_SEARCH_INDEXED_METADATA = StaticToggle(
+    'CASE_SEARCH_INDEXED_METADATA',
+    "Case Search: Search against indexed system metadata fields when possible",
+    TAG_INTERNAL,
+    namespaces=[NAMESPACE_DOMAIN],
+    description="""
+    This is a performance optimization. When creating filters from CSQL
+    expressions and the property being queried is a standard system metadata
+    property, query against the top-level location of that property rather than
+    the nested document inside case_properties.
+    """
+)
+
 USH_CASE_CLAIM_UPDATES = StaticToggle(
     'case_claim_autolaunch',
     "USH Specific toggle to support several different case search/claim workflows in web apps",
@@ -971,6 +1012,17 @@ USH_CASE_CLAIM_UPDATES = StaticToggle(
     and other options in Webapps Case Search.
     """,
     parent_toggles=[SYNC_SEARCH_CASE_CLAIM]
+)
+
+NO_SCROLL_IN_CASE_SEARCH = StaticToggle(
+    'no_scroll_in_case_search',
+    "Do not use scroll queries in case search elasticsearch queries",
+    TAG_INTERNAL,
+    namespaces=[NAMESPACE_DOMAIN],
+    description="""
+    This toggle replaces scroll queries in case search ancestor functions with
+    normal search queries.
+    """
 )
 
 GEOCODER_MY_LOCATION_BUTTON = StaticToggle(
@@ -1003,12 +1055,14 @@ GEOCODER_AUTOLOAD_USER_LOCATION = StaticToggle(
 
 GEOCODER_USER_PROXIMITY = StaticToggle(
     "geocoder_user_proximity",
-    "USH: Set the geocoder widget's proximity based on the user's location.",
+    "USH: Adjust geocoder result to be more relevant to user and project.",
     TAG_CUSTOM,
     namespaces=[NAMESPACE_DOMAIN],
     description="""
-    This has the effect of getting search results that are closer to the user's location. This will override
-    the domains default proximity setting ("Default project location").
+    This has two effects on getting geocoder search results:
+    1. Based on the bounding box of the project default location all result falling outside of it
+       will be filtered out when used in the case search.
+    2. Proximity to the users location will be taken into account for the results order.
     """,
     parent_toggles=[USH_CASE_CLAIM_UPDATES],
 )
@@ -1119,14 +1173,6 @@ ECD_MIGRATED_DOMAINS = StaticToggle(
     description='Domains that have undergone migration for Explore Case Data and have a '
     'CaseSearch elasticsearch index created.\n\n'
     'NOTE: enabling this Feature Flag will NOT enable the CaseSearch index.'
-)
-
-WEB_USER_ACTIVITY_REPORT = StaticToggle(
-    'web_user_activity_report',
-    'USH: Enable Web User Activity Report',
-    TAG_CUSTOM,
-    namespaces=[NAMESPACE_DOMAIN, NAMESPACE_USER],
-    help_link='https://confluence.dimagi.com/display/saas/USH%3A+Enable+Web+User+Activity+Report',
 )
 
 ECD_PREVIEW_ENTERPRISE_DOMAINS = StaticToggle(
@@ -1439,6 +1485,13 @@ MESSAGE_LOG_METADATA = StaticToggle(
     [NAMESPACE_USER],
 )
 
+RICH_TEXT_EMAILS = StaticToggle(
+    'rich_text_emails',
+    'Enable sending rich text HTML emails in conditional alerts and broadcasts',
+    TAG_CUSTOM,
+    [NAMESPACE_DOMAIN],
+)
+
 RUN_AUTO_CASE_UPDATES_ON_SAVE = StaticToggle(
     'run_auto_case_updates_on_save',
     'Run Auto Case Update rules on each case save.',
@@ -1446,9 +1499,9 @@ RUN_AUTO_CASE_UPDATES_ON_SAVE = StaticToggle(
     [NAMESPACE_DOMAIN],
 )
 
-CASE_DEDUPE = StaticToggle(
-    'case_dedupe',
-    'Case deduplication feature',
+CASE_DEDUPE_UPDATES = StaticToggle(
+    'case_dedupe_updates',
+    'Allow Case deduplication update actions',
     TAG_SOLUTIONS_LIMITED,
     [NAMESPACE_DOMAIN],
     help_link='https://confluence.dimagi.com/display/saas/Surfacing+Case+Duplicates+in+CommCare',
@@ -2132,11 +2185,17 @@ EMBEDDED_TABLEAU = StaticToggle(
 
 DETAILED_TAGGING = StaticToggle(
     'detailed_tagging',
-    'Send additional metrics to datadog and sentry. Currently only used in Formplayer.',
+    'Send additional metrics to datadog and sentry.',
     TAG_INTERNAL,
     namespaces=[NAMESPACE_DOMAIN],
 )
 
+HIGH_COUNT_DETAILED_TAGGING = StaticToggle(
+    'HIGH_COUNT_DETAILED_TAGGING',
+    'Send additional metrics to datadog and sentry. These tags have a high number of combinations.',
+    TAG_INTERNAL,
+    namespaces=[NAMESPACE_DOMAIN],
+)
 
 USER_HISTORY_REPORT = StaticToggle(
     'user_history_report',
@@ -2357,7 +2416,7 @@ EMBED_TABLEAU_REPORT_BY_USER = StaticToggle(
 APPLICATION_RELEASE_LOGS = StaticToggle(
     'application_release_logs',
     'Show Application release logs',
-    TAG_PRODUCT,
+    TAG_SOLUTIONS_OPEN,
     namespaces=[NAMESPACE_DOMAIN],
     description='This feature provides the release logs for application.'
 )
@@ -2444,8 +2503,17 @@ LOCATION_RESTRICTED_SCHEDULED_REPORTS = StaticToggle(
     'Allows access to report scheduling views for location restricted users',
     TAG_CUSTOM,
     namespaces=[NAMESPACE_DOMAIN],
-    description='Provides access to views for resport scheduling '
+    description='Provides access to views for report scheduling '
                 'such as schedule creation and deletion.'
+)
+
+WEB_USERS_IN_REPORTS = StaticToggle(
+    'web_users_in_reports',
+    'Adds web users to standard reports by default',
+    TAG_RELEASE,
+    namespaces=[NAMESPACE_DOMAIN],
+    description='Adds web users to default filter selections, the [Project Data] filter for the '
+                'case list reports, and to the body of the Worker Activity and Project Health reports'
 )
 
 CUSTOM_EMAIL_GATEWAY = StaticToggle(
@@ -2456,6 +2524,29 @@ CUSTOM_EMAIL_GATEWAY = StaticToggle(
     help_link=('https://confluence.dimagi.com/display/USH/'
                'Allow+user+to+define+custom+email+gateway+that+'
                'can+be+used+to+send+emails+from+HQ'),
+)
+
+ALLOW_WEB_APPS_RESTRICTION = StaticToggle(
+    'allow_web_apps_restriction',
+    'Makes domain eligible to be restricted from using web apps/app preview.',
+    tag=TAG_SAAS_CONDITIONAL,
+    namespaces=[NAMESPACE_DOMAIN],
+    description="""
+    When enabled, the domain is eligible to be restricted from using web apps/app preview. The intention is
+    to only enable this for domains in extreme cases where their formplayer restores are resource intensive
+    to the point where they can degrade web apps performance for the entire system.
+    """
+)
+
+ES_QUERY_PREFERENCE = StaticToggle(
+    'es_query_preference',
+    'Sets preference option on ES queries',
+    tag=TAG_INTERNAL,
+    namespaces=[NAMESPACE_DOMAIN],
+    description="""
+    When enabled, ES queries for this domain will be routed to the same shards for every request. This helps
+    ES queries take advantage of caching on ES nodes.
+    """
 )
 
 
@@ -2657,11 +2748,69 @@ DATA_DICTIONARY = FrozenPrivilegeToggle(
     help_link='https://confluence.dimagi.com/display/commcarepublic/Data+Dictionary'
 )
 
+CASE_DEDUPE = FrozenPrivilegeToggle(
+    privileges.CASE_DEDUPE,
+    'case_dedupe',
+    label='Case deduplication feature',
+    tag=TAG_SOLUTIONS_LIMITED,
+    namespaces=[NAMESPACE_DOMAIN],
+    help_link='https://confluence.dimagi.com/display/saas/Surfacing+Case+Duplicates+in+CommCare',
+)
 
-CUSTOM_DOMAIN_BANNER_ALERTS = StaticToggle(
-    slug='custom_domain_banners',
-    label='Allow projects to add banners for their users on HQ',
+USE_LOGO_IN_SYSTEM_EMAILS = StaticToggle(
+    slug='use_logo_in_system_emails',
+    label='Use the project\'s logo in emails sent from HQ',
     tag=TAG_CUSTOM,
     namespaces=[NAMESPACE_DOMAIN],
-    description='Allow projects to add banners visible to their users on HQ on every login',
+    description='The project logo replaces the CommCare logo.',
+)
+
+VELLUM_CASE_MICRO_IMAGE = StaticToggle(
+    slug='case_micro_image',
+    label='Add case micro images to case list',
+    tag=TAG_SOLUTIONS_LIMITED,
+    namespaces=[NAMESPACE_DOMAIN],
+    description='Add a micro image to cases in the case list.'
+)
+
+SUPPORT_GEO_JSON_EXPORT = StaticToggle(
+    slug='support_geo_json_export',
+    label='Support GeoJSON export in Case Exporter',
+    tag=TAG_SOLUTIONS_CONDITIONAL,
+    namespaces=[NAMESPACE_DOMAIN],
+    description='The Case Export page now supports the exporting of GeoJSON data.',
+)
+
+USE_PROMINENT_PROGRESS_BAR = StaticToggle(
+    slug='use_prominent_progress_bar',
+    label='Use more prominent progress bar in place of NProgress',
+    tag=TAG_CUSTOM,
+    namespaces=[NAMESPACE_DOMAIN],
+    description='Replaces NProgress bar with more prominent progress bar',
+)
+
+INCREASED_MAX_SEARCH_RESULTS = StaticToggle(
+    slug='increased_max_search_results',
+    label='Increases the maximum number of Elasticsearch results from 500 to 1500',
+    tag=TAG_CUSTOM,
+    namespaces=[NAMESPACE_DOMAIN],
+    description='Temporary increase of the max number of search results.',
+)
+
+
+SUPPORT_ROAD_NETWORK_DISBURSEMENT_ALGORITHM = StaticToggle(
+    slug='support_road_network_disbursement_algorithm',
+    label='Add Road Network disbursement algorithm on geospatial settings page',
+    tag=TAG_SOLUTIONS_OPEN,
+    namespaces=[NAMESPACE_DOMAIN],
+    description='Add support for the Road Network disbursement algorithm for the Geospatial feature',
+)
+
+
+RESTRICT_DATA_SOURCE_REBUILD = StaticToggle(
+    slug='restrict_data_source_rebuilds',
+    label='Restrict data source rebuilt from UI',
+    tag=TAG_SOLUTIONS,
+    namespaces=[NAMESPACE_DOMAIN],
+    description='Restrict data source rebuilt from UI if the relevant data for the data source crosses a threshold'
 )

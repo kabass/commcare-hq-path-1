@@ -200,7 +200,7 @@ class Command(BaseCommand):
                          'from a secure dropzone'),
         Role(slug=privileges.ATTENDANCE_TRACKING,
              name='Attendance Tracking',
-             description='Supports using CommCareHQ for attendance tracking'),
+             description='Supports using CommCare HQ for attendance tracking'),
         Role(slug=privileges.REGEX_FIELD_VALIDATION,
              name='Regular Field Validation',
              description='Regular field validation for custom data fields'),
@@ -232,6 +232,12 @@ class Command(BaseCommand):
         Role(slug=privileges.CASE_COPY,
              name='Allow Case Copy',
              description='Allow case copy from one user to another'),
+        Role(slug=privileges.CASE_DEDUPE,
+             name='Deduplication Rules',
+             description='Support for finding duplicate cases'),
+        Role(slug=privileges.CUSTOM_DOMAIN_ALERTS,
+             name='Custom Domain Banners',
+             description='Allow projects to add banners for their users on CommCare HQ'),
     ]
 
     BOOTSTRAP_PLANS = [

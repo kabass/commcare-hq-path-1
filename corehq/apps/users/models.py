@@ -66,6 +66,7 @@ from corehq.apps.domain.utils import (
     guess_domain_language,
 )
 from corehq.apps.hqwebapp.tasks import send_html_email_async
+from corehq.apps.reports.const import TABLEAU_ROLES
 from corehq.apps.sms.mixin import CommCareMobileContactMixin, apply_leniency
 from corehq.apps.user_importer.models import UserUploadRecord
 from corehq.apps.users.exceptions import IllegalAccountConfirmation
@@ -101,11 +102,9 @@ from .models_role import (  # noqa
     StaticRole,
     UserRole,
 )
+from .user_data import SQLUserData  # noqa
 from corehq import toggles, privileges
 from corehq.apps.accounting.utils import domain_has_privilege
-from corehq.apps.locations.models import (
-    get_case_sharing_groups_for_locations,
-)
 
 WEB_USER = 'web'
 COMMCARE_USER = 'commcare'
@@ -162,6 +161,7 @@ PARAMETERIZED_PERMISSIONS = {
     'view_data_registry_contents': 'view_data_registry_contents_list',
     'view_reports': 'view_report_list',
     'view_tableau': 'view_tableau_list',
+    'commcare_analytics_roles': 'commcare_analytics_roles_list',
 }
 
 
@@ -223,6 +223,14 @@ class HqPermissions(DocumentSchema):
     view_data_registry_contents = BooleanProperty(default=False)
     view_data_registry_contents_list = StringListProperty(default=[])
     manage_attendance_tracking = BooleanProperty(default=False)
+
+    manage_domain_alerts = BooleanProperty(default=False)
+
+    view_commcare_analytics = BooleanProperty(default=False)
+    edit_commcare_analytics = BooleanProperty(default=False)
+
+    commcare_analytics_roles = BooleanProperty(default=False)
+    commcare_analytics_roles_list = StringListProperty(default=[])
 
     @classmethod
     def from_permission_list(cls, permission_list):
@@ -1102,8 +1110,15 @@ class CouchUser(Document, DjangoUserMixin, IsMemberOfMixin, EulaMixin):
         self.last_name = ' '.join(data)
 
     def get_user_data(self, domain):
+        # To do this in bulk, try UserData's prime_user_data_caches
         from .user_data import UserData
-        return UserData(self.user_data, domain)
+        if domain not in self._user_data_accessors:
+            self._user_data_accessors[domain] = UserData.for_user(self, domain)
+        return self._user_data_accessors[domain]
+
+    def _save_user_data(self):
+        for user_data in self._user_data_accessors.values():
+            user_data.save()
 
     def get_user_session_data(self, domain):
         from corehq.apps.custom_data_fields.models import (
@@ -1124,6 +1139,19 @@ class CouchUser(Document, DjangoUserMixin, IsMemberOfMixin, EulaMixin):
             f'{SYSTEM_PREFIX}_user_type': self._get_user_type(),
         })
         return session_data
+
+    def _get_case_owning_locations(self, domain):
+        """
+        :return: queryset of case-owning locations either directly assigned to the
+        user or descendant from an assigned location that views descendants
+        """
+        from corehq.apps.locations.models import SQLLocation
+
+        yield from self.get_sql_locations(domain).filter(location_type__shares_cases=True)
+
+        yield from SQLLocation.objects.get_queryset_descendants(
+            self.get_sql_locations(domain).filter(location_type__view_descendants=True)
+        ).filter(location_type__shares_cases=True, is_archived=False)
 
     def delete(self, deleted_by_domain, deleted_by, deleted_via=None):
         from corehq.apps.users.model_log import UserModelAction
@@ -1163,7 +1191,7 @@ class CouchUser(Document, DjangoUserMixin, IsMemberOfMixin, EulaMixin):
         queryset = User.objects
         if use_primary_db:
             queryset = queryset.using(router.db_for_write(User))
-        return queryset.get(username__iexact=self.username)
+        return queryset.get(username=self.username)
 
     def add_phone_number(self, phone_number, default=False, **kwargs):
         """ Don't add phone numbers if they already exist """
@@ -1410,9 +1438,13 @@ class CouchUser(Document, DjangoUserMixin, IsMemberOfMixin, EulaMixin):
     def from_django_user(cls, django_user, strict=False):
         return cls.get_by_username(django_user.username, strict=strict)
 
+    def __init__(self, *args, **kwargs):
+        self._user_data_accessors = {}
+        super().__init__(*args, **kwargs)
+
     @classmethod
     def create(cls, domain, username, password, created_by, created_via, email=None, uuid='', date='',
-               first_name='', last_name='', **kwargs):
+               user_data=None, first_name='', last_name='', **kwargs):
         try:
             django_user = User.objects.using(router.db_for_write(User)).get(username=username)
         except User.DoesNotExist:
@@ -1424,9 +1456,9 @@ class CouchUser(Document, DjangoUserMixin, IsMemberOfMixin, EulaMixin):
         if uuid:
             if not re.match(r'[\w-]+', uuid):
                 raise cls.InvalidID('invalid id %r' % uuid)
-            couch_user = cls(_id=uuid)
         else:
-            couch_user = cls()
+            uuid = uuid4().hex
+        couch_user = cls(_id=uuid)
 
         if date:
             couch_user.created_on = force_to_datetime(date)
@@ -1434,6 +1466,10 @@ class CouchUser(Document, DjangoUserMixin, IsMemberOfMixin, EulaMixin):
             couch_user.created_on = datetime.utcnow()
 
         couch_user.sync_from_django_user(django_user)
+
+        if user_data:
+            couch_user.get_user_data(domain).update(user_data)
+
         return couch_user
 
     def to_be_deleted(self):
@@ -1450,13 +1486,17 @@ class CouchUser(Document, DjangoUserMixin, IsMemberOfMixin, EulaMixin):
 
     bulk_save = save_docs
 
-    def save(self, fire_signals=True, update_django_user=True, **params):
+    def save(self, fire_signals=True, update_django_user=True, fail_hard=False, **params):
+        # fail_hard determines whether the save should fail if it cannot obtain the critical section
+        # historically, the critical section hasn't been enforced, but enforcing it is a dramatic change
+        # for our system. The goal here is to allow the programmer to specify fail_hard on a workflow-by-workflow
+        # basis, so we can gradually shift to all saves requiring the critical section.
+
         # HEADS UP!
         # When updating this method, please also ensure that your updates also
         # carry over to bulk_auto_deactivate_commcare_users.
         self.last_modified = datetime.utcnow()
-        self.clear_quickcache_for_user()
-        with CriticalSection(['username-check-%s' % self.username], timeout=120):
+        with CriticalSection(['username-check-%s' % self.username], fail_hard=fail_hard, timeout=120):
             # test no username conflict
             by_username = self.get_db().view('users/by_username', key=self.username, reduce=False).first()
             if by_username and by_username['id'] != self._id:
@@ -1466,7 +1506,13 @@ class CouchUser(Document, DjangoUserMixin, IsMemberOfMixin, EulaMixin):
                 django_user = self.sync_to_django_user()
                 django_user.save()
 
-            super(CouchUser, self).save(**params)
+            if not self.to_be_deleted():
+                self._save_user_data()
+            try:
+                super(CouchUser, self).save(**params)
+            finally:
+                # ensure the cache is cleared even if something goes wrong while saving the user to couch
+                self.clear_quickcache_for_user()
 
         if fire_signals:
             self.fire_signals()
@@ -1715,7 +1761,6 @@ class CommCareUser(CouchUser, SingleMembershipMixin, CommCareMobileContactMixin)
         """
         Main entry point into creating a CommCareUser (mobile worker).
         """
-        uuid = uuid or uuid4().hex
         # if the account is not confirmed, also set is_active false so they can't login
         if 'is_active' not in kwargs:
             kwargs['is_active'] = is_account_confirmed
@@ -1723,7 +1768,7 @@ class CommCareUser(CouchUser, SingleMembershipMixin, CommCareMobileContactMixin)
             assert not kwargs['is_active'], \
                 "it's illegal to create a user with is_active=True and is_account_confirmed=False"
         commcare_user = super(CommCareUser, cls).create(domain, username, password, created_by, created_via,
-                                                        email, uuid, date, **kwargs)
+                                                        email, uuid, date, user_data, **kwargs)
         if phone_number is not None:
             commcare_user.add_phone_number(phone_number)
 
@@ -1734,8 +1779,6 @@ class CommCareUser(CouchUser, SingleMembershipMixin, CommCareMobileContactMixin)
         commcare_user.registering_device_id = device_id
         commcare_user.is_account_confirmed = is_account_confirmed
         commcare_user.domain_membership = DomainMembership(domain=domain, **kwargs)
-        if user_data:
-            commcare_user.get_user_data(domain).update(user_data)
 
         if location:
             commcare_user.set_location(location, commit=False)
@@ -1780,9 +1823,9 @@ class CommCareUser(CouchUser, SingleMembershipMixin, CommCareMobileContactMixin)
     def _get_deleted_case_ids(self):
         return CommCareCase.objects.get_deleted_case_ids_by_owner(self.domain, self.user_id)
 
-    def get_owner_ids(self, domain=None):
+    def get_owner_ids(self, domain):
         owner_ids = [self.user_id]
-        owner_ids.extend([g._id for g in self.get_case_sharing_groups()])
+        owner_ids.extend(g._id for g in self.get_case_sharing_groups())
         return owner_ids
 
     def unretire(self, unretired_by_domain, unretired_by, unretired_via=None):
@@ -1792,6 +1835,7 @@ class CommCareUser(CouchUser, SingleMembershipMixin, CommCareMobileContactMixin)
         - It will not restore Case Indexes that were removed
         - It will not restore the user's phone numbers
         - It will not restore reminders for cases
+        - It will not restore custom user data
         """
         from corehq.apps.users.model_log import UserModelAction
 
@@ -1889,10 +1933,10 @@ class CommCareUser(CouchUser, SingleMembershipMixin, CommCareMobileContactMixin)
         )
 
         # get faked location group objects
-        groups = list(get_case_sharing_groups_for_locations(
-            self.get_sql_locations(self.domain),
-            self._id
-        ))
+        groups = [
+            location.case_sharing_group_object(self._id)
+            for location in self._get_case_owning_locations(self.domain)
+        ]
         groups += [group for group in Group.by_user_id(self._id) if group.case_sharing]
 
         has_at_privilege = domain_has_privilege(self.domain, privileges.ATTENDANCE_TRACKING)
@@ -1905,23 +1949,6 @@ class CommCareUser(CouchUser, SingleMembershipMixin, CommCareMobileContactMixin)
     def get_reporting_groups(self):
         from corehq.apps.groups.models import Group
         return [group for group in Group.by_user_id(self._id) if group.reporting]
-
-    @classmethod
-    def cannot_share(cls, domain, limit=None, skip=0):
-        users_checked = list(cls.by_domain(domain, limit=limit, skip=skip))
-        if not users_checked:
-            # stop fetching when you come back with none
-            return []
-        users = [user for user in users_checked if len(user.get_case_sharing_groups()) != 1]
-        if limit is not None:
-            total = cls.total_by_domain(domain)
-            max_limit = min(total - skip, limit)
-            if len(users) < max_limit:
-                new_limit = max_limit - len(users_checked)
-                new_skip = skip + len(users_checked)
-                users.extend(cls.cannot_share(domain, new_limit, new_skip))
-                return users
-        return users
 
     def get_group_ids(self):
         from corehq.apps.groups.models import Group
@@ -2025,7 +2052,7 @@ class CommCareUser(CouchUser, SingleMembershipMixin, CommCareMobileContactMixin)
         user_data = self.get_user_data(self.domain)
         user_data['commcare_location_id'] = location.location_id
 
-        if not location.location_type_object.administrative:
+        if not location.location_type.administrative:
             # just need to trigger a get or create to make sure
             # this exists, otherwise things blow up
             sp = SupplyInterface(self.domain).get_or_create_by_location(location)
@@ -2193,7 +2220,7 @@ class CommCareUser(CouchUser, SingleMembershipMixin, CommCareMobileContactMixin)
 
         index = {}
         for location in locations:
-            if not location.location_type_object.administrative:
+            if not location.location_type.administrative:
                 sp = SupplyInterface(self.domain).get_by_location(location)
                 index.update(self.supply_point_index_mapping(sp))
 
@@ -2371,11 +2398,9 @@ class WebUser(CouchUser, MultiMembershipMixin, CommCareMobileContactMixin):
     def create(cls, domain, username, password, created_by, created_via, email=None, uuid='', date='',
                user_data=None, by_domain_required_for_log=True, **kwargs):
         web_user = super(WebUser, cls).create(domain, username, password, created_by, created_via, email, uuid,
-                                              date, **kwargs)
+                                              date, user_data, **kwargs)
         if domain:
             web_user.add_domain_membership(domain, **kwargs)
-        if user_data:
-            web_user.get_user_data(domain).update(user_data)
         web_user.save()
         web_user.log_user_create(domain, created_by, created_via,
                                  by_domain_required_for_log=by_domain_required_for_log)
@@ -2405,6 +2430,11 @@ class WebUser(CouchUser, MultiMembershipMixin, CommCareMobileContactMixin):
             self,
             request_user=request_user
         )
+
+    def get_owner_ids(self, domain):
+        owner_ids = [self.user_id]
+        owner_ids.extend(loc.location_id for loc in self._get_case_owning_locations(domain))
+        return owner_ids
 
     @quickcache(['self._id', 'domain'], lambda _: settings.UNIT_TESTING)
     def get_usercase_id(self, domain):
@@ -2565,6 +2595,14 @@ class WebUser(CouchUser, MultiMembershipMixin, CommCareMobileContactMixin):
     def get_usercase_by_domain(self, domain):
         return CommCareCase.objects.get_case_by_external_id(domain, self._id, USERCASE_TYPE)
 
+    def get_user_session_data(self, domain):
+        # TODO can we do this for both types of users and remove the fields from user data?
+        session_data = super(WebUser, self).get_user_session_data(domain)
+        session_data['commcare_location_id'] = self.get_location_id(domain)
+        session_data['commcare_location_ids'] = user_location_data(self.get_location_ids(domain))
+        session_data['commcare_primary_case_sharing_id'] = self.get_location_id(domain)
+        return session_data
+
 
 class FakeUser(WebUser):
     """
@@ -2659,6 +2697,13 @@ class Invitation(models.Model):
     role = models.CharField(max_length=100, null=True)  # role qualified ID
     program = models.CharField(max_length=126, null=True)   # couch id of a Program
     supply_point = models.CharField(max_length=126, null=True)  # couch id of a Location
+    location = models.ForeignKey("locations.SQLLocation", on_delete=models.SET_NULL,
+                                 to_field='location_id', null=True)  # to replace supply_point
+    profile = models.ForeignKey("custom_data_fields.CustomDataFieldsProfile",
+                                on_delete=models.SET_NULL, null=True)
+    custom_user_data = models.JSONField(default=dict)
+    tableau_role = models.CharField(max_length=32, choices=TABLEAU_ROLES, null=True)
+    tableau_group_ids = ArrayField(models.CharField(max_length=36), null=True)
 
     def __repr__(self):
         return f"Invitation(domain='{self.domain}', email='{self.email})"
@@ -2690,6 +2735,8 @@ class Invitation(models.Model):
             "inviter": inviter.formatted_name,
             "url_prefix": get_static_url_prefix(),
         }
+        from corehq.apps.registration.utils import project_logo_emails_context
+        params.update(project_logo_emails_context(domain_obj.name))
 
         domain_request = DomainRequest.by_email(self.domain, self.email, is_approved=True)
         lang = guess_domain_language(self.domain)
@@ -2756,7 +2803,7 @@ class Invitation(models.Model):
         web_user.add_as_web_user(
             self.domain,
             role=self.role,
-            location_id=self.supply_point,
+            location_id=getattr(self.location, "location_id", None),
             program_id=self.program,
         )
         self.is_accepted = True
@@ -3001,6 +3048,8 @@ class HQApiKey(models.Model):
     def save(self, *args, **kwargs):
         if not self.key:
             self.key = self.generate_key()
+            if 'update_fields' in kwargs:
+                kwargs['update_fields'].append('key')
 
         return super().save(*args, **kwargs)
 

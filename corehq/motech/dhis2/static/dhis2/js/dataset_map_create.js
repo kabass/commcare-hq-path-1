@@ -1,7 +1,6 @@
 hqDefine("dhis2/js/dataset_map_create", [
     "jquery",
-    "hqwebapp/js/widgets",
-    'jquery-ui/ui/widgets/datepicker',
+    "hqwebapp/js/bootstrap3/widgets",
 ], function ($) {
     function showCompleteDateColumnInput(shouldShow) {
         var label = $('label[for="id_complete_date_column"]').hide();

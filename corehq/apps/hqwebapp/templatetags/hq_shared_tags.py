@@ -237,19 +237,28 @@ def can_use_restore_as(request):
 
 @register.simple_tag
 def css_label_class():
-    from corehq.apps.hqwebapp.crispy import CSS_LABEL_CLASS
+    from corehq.apps.hqwebapp.crispy import CSS_LABEL_CLASS, CSS_LABEL_CLASS_BOOTSTRAP5
+    from corehq.apps.hqwebapp.utils.bootstrap import get_bootstrap_version, BOOTSTRAP_5
+    if get_bootstrap_version() == BOOTSTRAP_5:
+        return CSS_LABEL_CLASS_BOOTSTRAP5
     return CSS_LABEL_CLASS
 
 
 @register.simple_tag
 def css_field_class():
-    from corehq.apps.hqwebapp.crispy import CSS_FIELD_CLASS
+    from corehq.apps.hqwebapp.crispy import CSS_FIELD_CLASS, CSS_FIELD_CLASS_BOOTSTRAP5
+    from corehq.apps.hqwebapp.utils.bootstrap import get_bootstrap_version, BOOTSTRAP_5
+    if get_bootstrap_version() == BOOTSTRAP_5:
+        return CSS_FIELD_CLASS_BOOTSTRAP5
     return CSS_FIELD_CLASS
 
 
 @register.simple_tag
 def css_action_class():
-    from corehq.apps.hqwebapp.crispy import CSS_ACTION_CLASS
+    from corehq.apps.hqwebapp.crispy import CSS_ACTION_CLASS, get_form_action_class
+    from corehq.apps.hqwebapp.utils.bootstrap import get_bootstrap_version, BOOTSTRAP_5
+    if get_bootstrap_version() == BOOTSTRAP_5:
+        return get_form_action_class()
     return CSS_ACTION_CLASS
 
 
@@ -626,6 +635,15 @@ def analytics_ab_test(parser, token):
 
 
 @register.tag
+def requirejs_main_b5(parser, token):
+    """
+    Alias for requirejs_main. The build_requirejs step of deploy, which regexes HTML templates
+    for that tag, uses this alias to determine which version of Bootstrap a template uses.
+    """
+    return requirejs_main(parser, token)
+
+
+@register.tag
 def requirejs_main(parser, token):
     """
     Indicate that a page should be using RequireJS, by naming the
@@ -645,6 +663,11 @@ def requirejs_main(parser, token):
         value = None
     else:
         tag_name, value = bits
+
+    # Treat requirejs_main_b5 identically to requirejs_main
+    # Some templates check for {% if requirejs_main %}
+    tag_name = tag_name.rstrip("_b5")
+
     if getattr(parser, "__saw_requirejs_main", False):
         raise TemplateSyntaxError(
             "multiple '%s' tags not allowed (%s)" % tuple(bits))
