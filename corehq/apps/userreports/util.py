@@ -48,7 +48,7 @@ def localize(value, lang):
     :param value: A dict-like object or string
     :param lang: A language code.
     """
-    if isinstance(value, collections.Mapping) and len(value):
+    if isinstance(value, collections.abc.Mapping) and len(value):
         return (
             value.get(lang, None)
             or value.get(default_language(), None)
