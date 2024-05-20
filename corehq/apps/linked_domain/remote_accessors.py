@@ -1,6 +1,7 @@
 from django.urls.base import reverse
 
 import requests
+import time
 from requests import ConnectionError
 
 from dimagi.utils.logging import notify_exception
@@ -163,9 +164,10 @@ def _do_request_to_remote_hq(relative_url, remote_details, linked_domain, params
         'HQ-REMOTE-REQUESTER': absolute_reverse('domain_homepage', args=[linked_domain])
     }
     try:
+        time.sleep(0.1)
         response = requests.request(
             method, full_url,
-            params=params, auth=ApiKeyAuth(username, api_key), headers=headers
+            params=params, auth=ApiKeyAuth(username, api_key), headers=headers,  timeout=(3.05, 27)
         )
     except ConnectionError:
         notify_exception(None, "Error performing remote app request", details={
@@ -173,7 +175,10 @@ def _do_request_to_remote_hq(relative_url, remote_details, linked_domain, params
             'params': params,
             'headers': headers
         })
-        raise RemoteRequestError()
+        response = requests.request(
+            method, full_url,
+            params=params, auth=ApiKeyAuth(username, api_key), headers=headers,  timeout=(3.05, 27)
+        )
     if response.status_code == 401:
         raise RemoteAuthError(response.status_code)
     elif response.status_code == 403:
